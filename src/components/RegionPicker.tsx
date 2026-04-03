@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { loadRegions, getProvinces, getRegionsByProvince } from '../map/geodata'
+import { loadRegions, getProvinces, getRegionsByProvince, PROVINCE_ABBR } from '../map/geodata'
 import type { RegionData } from '../map/geodata';
 import KoreaMap from '../map/KoreaMap';
 
@@ -115,7 +115,7 @@ export default function RegionPicker({ onSelect, onClose, currentCode }: RegionP
                   transition: 'all 0.15s',
                 }}
               >
-                {p.replace('특별시', '').replace('광역시', '').replace('특별자치시', '').replace('특별자치도', '').replace('도', '')}
+                {PROVINCE_ABBR[p] ?? p}
               </button>
             ))}
           </div>
