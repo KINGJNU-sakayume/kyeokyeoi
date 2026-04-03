@@ -35,3 +35,4 @@ jobs:
           git add docs/
           git diff --staged --quiet || git commit -m "chore: auto-build [skip ci]"
           git push
+
