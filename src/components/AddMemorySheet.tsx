@@ -1,17 +1,27 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../AppContext';
 import { saveMemory, getMemory } from '../db/index'
 import type { Memory } from '../db/index';
 import { computeYear } from '../utils/timeUtils';
 import { fileToBase64 } from '../utils/photoUtils';
-import PhotoGallery from './PhotoGallery';
 import RegionPicker from './RegionPicker';
 
 type TimeType = Memory['timeType'];
 type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 type SchoolType = 'elementary' | 'middle' | 'high';
 
-const EMOTIONS = ['😊', '😢', '🥰', '🤩', '😌', '😔', '😨', '😤', '😂', '🌅'];
+const EMOTIONS: { emoji: string; label: string }[] = [
+  { emoji: '😊', label: '행복' },
+  { emoji: '😢', label: '슬픔' },
+  { emoji: '🥰', label: '설렘' },
+  { emoji: '🤩', label: '신남' },
+  { emoji: '😌', label: '평온' },
+  { emoji: '😔', label: '우울' },
+  { emoji: '😨', label: '두려움' },
+  { emoji: '😤', label: '화남' },
+  { emoji: '😂', label: '웃김' },
+  { emoji: '🌅', label: '감동' },
+];
 
 const TIME_TYPES: { id: TimeType; label: string }[] = [
   { id: 'date', label: '날짜' },
@@ -68,6 +78,8 @@ export default function AddMemorySheet() {
   const [showRegionPicker, setShowRegionPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [emotionTooltip, setEmotionTooltip] = useState<string | null>(null);
+  const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Drag to dismiss
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -169,6 +181,15 @@ export default function AddMemorySheet() {
   function toggleEmotion(emoji: string) {
     setEmotions(prev => prev.includes(emoji) ? prev.filter(e => e !== emoji) : [...prev, emoji]);
   }
+
+  const startEmotionTooltip = useCallback((label: string) => {
+    tooltipTimer.current = setTimeout(() => setEmotionTooltip(label), 500);
+  }, []);
+
+  const clearEmotionTooltip = useCallback(() => {
+    if (tooltipTimer.current) { clearTimeout(tooltipTimer.current); tooltipTimer.current = null; }
+    setEmotionTooltip(null);
+  }, []);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -399,21 +420,36 @@ export default function AddMemorySheet() {
           {/* 감정 */}
           <FormField label="감정 태그">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {EMOTIONS.map(emoji => {
+              {EMOTIONS.map(({ emoji, label }) => {
                 const selected = emotions.includes(emoji);
                 return (
                   <button
                     key={emoji}
                     onClick={() => toggleEmotion(emoji)}
+                    onPointerDown={() => startEmotionTooltip(label)}
+                    onPointerUp={clearEmotionTooltip}
+                    onPointerLeave={clearEmotionTooltip}
                     style={{
                       width: '44px', height: '44px', fontSize: '22px',
                       borderRadius: 'var(--radius-sm)', cursor: 'pointer',
                       background: selected ? 'var(--color-primary-light)' : 'var(--color-bg-secondary)',
                       border: `2px solid ${selected ? 'var(--color-primary)' : 'var(--color-border)'}`,
                       transition: 'all 0.15s',
+                      position: 'relative',
                     }}
                   >
                     {emoji}
+                    {emotionTooltip === label && (
+                      <span style={{
+                        position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: 'rgba(0,0,0,0.8)', color: 'white',
+                        padding: '3px 8px', borderRadius: '6px', fontSize: '11px',
+                        whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10,
+                      }}>
+                        {label}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -442,11 +478,6 @@ export default function AddMemorySheet() {
 
           {/* 사진 */}
           <FormField label="사진">
-            {photos.length > 0 && (
-              <div style={{ marginBottom: '10px' }}>
-                <PhotoGallery photos={photos} editable onRemove={i => setPhotos(prev => prev.filter((_, idx) => idx !== i))} />
-              </div>
-            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -455,19 +486,46 @@ export default function AddMemorySheet() {
               onChange={handlePhotoAdd}
               style={{ display: 'none' }}
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              style={{
-                padding: '10px 16px',
-                border: '1px dashed var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '13px', color: 'var(--color-text-secondary)',
-                cursor: 'pointer', background: 'var(--color-bg-secondary)',
-                width: '100%',
-              }}
-            >
-              + 사진 추가
-            </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {photos.map((photo, i) => (
+                <div key={i} style={{
+                  width: 'calc((100% - 16px) / 3)', aspectRatio: '1 / 1',
+                  position: 'relative', borderRadius: 'var(--radius-sm)', overflow: 'hidden',
+                  flexShrink: 0,
+                }}>
+                  <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  <button
+                    onClick={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                    style={{
+                      position: 'absolute', top: '4px', right: '4px',
+                      width: '22px', height: '22px', borderRadius: '50%',
+                      background: 'rgba(0,0,0,0.6)', color: 'white',
+                      fontSize: '13px', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                    aria-label="사진 삭제"
+                  >×</button>
+                </div>
+              ))}
+              {photos.length < 5 && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    width: 'calc((100% - 16px) / 3)', aspectRatio: '1 / 1',
+                    border: '1.5px dashed var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--color-bg-secondary)',
+                    display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', color: 'var(--color-text-secondary)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ fontSize: '22px', lineHeight: 1 }}>📷</span>
+                  <span style={{ fontSize: '11px', marginTop: '5px' }}>추가</span>
+                </button>
+              )}
+            </div>
           </FormField>
 
           {/* 메모 */}

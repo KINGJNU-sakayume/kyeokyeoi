@@ -94,8 +94,8 @@ export default function KoreaMap({ regionColors, onRegionClick, compact, selecte
             key={region.code}
             d={region.path}
             fill={fill}
-            stroke={isSelected ? 'var(--color-primary-deep)' : 'white'}
-            strokeWidth={isSelected ? '1.5' : (compact ? '0.3' : '0.5')}
+            stroke={isSelected ? 'var(--color-primary-deep)' : 'none'}
+            strokeWidth={isSelected ? '1.5' : '0'}
             strokeLinejoin="round"
             data-region-code={region.code}
             style={{ cursor: onRegionClick ? 'pointer' : 'default', outline: 'none' }}

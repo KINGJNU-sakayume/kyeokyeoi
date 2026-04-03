@@ -131,28 +131,25 @@ export default function SettingsTab() {
                   key={t}
                   onClick={() => setTheme(t as Theme)}
                   style={{
-                    padding: '14px',
-                    border: `2px solid ${active ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                    padding: '18px 14px',
+                    border: `2px solid ${active ? 'white' : 'transparent'}`,
                     borderRadius: 'var(--radius-md)',
-                    background: active ? 'var(--color-primary-light)' : 'var(--color-bg)',
+                    background: `linear-gradient(135deg, ${colors.primaryDeep} 0%, ${colors.primary} 60%, ${colors.accent} 100%)`,
                     textAlign: 'left', cursor: 'pointer',
                     position: 'relative',
                     transition: 'all 0.15s',
+                    minHeight: '80px',
+                    boxShadow: active ? `0 0 0 2px ${colors.primary}` : 'none',
                   }}
                 >
                   {active && (
-                    <span style={{
-                      position: 'absolute', top: '8px', right: '8px',
-                      fontSize: '14px', color: 'var(--color-primary)',
-                    }}>✓</span>
+                    <span style={{ position: 'absolute', top: '8px', right: '10px', fontSize: '14px', color: 'white' }}>✓</span>
                   )}
-                  <div style={{ display: 'flex', height: '6px', borderRadius: '3px', overflow: 'hidden', marginBottom: '8px' }}>
-                    <div style={{ flex: 1, background: colors.primaryDeep }} />
-                    <div style={{ flex: 1, background: colors.primary }} />
-                    <div style={{ flex: 1, background: colors.accent }} />
-                  </div>
-                  <div style={{ fontWeight: active ? 700 : 500, fontSize: '13px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '13px', color: 'white', marginTop: '14px' }}>
                     {THEME_NAMES[t]}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.75)', marginTop: '2px' }}>
+                    테마 {t}
                   </div>
                 </button>
               );

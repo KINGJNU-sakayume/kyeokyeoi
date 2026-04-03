@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useApp } from '../AppContext';
 import { THEMES, THEME_NAMES, THEME_COLORS, applyTheme } from '../theme/index'
 import type { Theme } from '../theme/index';
@@ -76,21 +76,7 @@ function Step1({ birthYearInput, setBirthYearInput, valid, onNext }: {
         <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px', color: 'var(--color-text-primary)' }}>
           태어난 연도를 입력해주세요
         </label>
-        <input
-          type="number"
-          value={birthYearInput}
-          onChange={e => setBirthYearInput(e.target.value)}
-          placeholder="예: 1995"
-          min="1900"
-          max={new Date().getFullYear().toString()}
-          style={{
-            width: '100%', padding: '14px 16px',
-            border: `2px solid ${valid ? 'var(--color-primary)' : 'var(--color-border)'}`,
-            borderRadius: 'var(--radius-md)', fontSize: '18px', fontWeight: 500,
-            background: 'var(--color-bg)', outline: 'none',
-            transition: 'border-color 0.2s',
-          }}
-        />
+        <YearPicker value={birthYearInput} onChange={setBirthYearInput} />
         <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '6px' }}>
           나이/학년 추억 기록에 사용됩니다
         </p>
@@ -139,24 +125,24 @@ function Step2({ selectedTheme, onSelect, onNext }: {
               key={t}
               onClick={() => onSelect(t)}
               style={{
-                padding: '16px',
-                border: `2px solid ${active ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                padding: '20px 16px',
+                border: `2px solid ${active ? 'white' : 'transparent'}`,
                 borderRadius: 'var(--radius-md)',
-                background: active ? 'var(--color-primary-light)' : 'var(--color-bg)',
+                background: `linear-gradient(135deg, ${colors.primaryDeep} 0%, ${colors.primary} 60%, ${colors.accent} 100%)`,
                 textAlign: 'left', cursor: 'pointer',
                 transition: 'all 0.15s',
+                position: 'relative',
+                minHeight: '88px',
+                boxShadow: active ? `0 0 0 2px ${colors.primary}` : 'none',
               }}
             >
-              {/* Color swatch strip */}
-              <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '10px' }}>
-                <div style={{ flex: 1, background: colors.primaryDeep }} />
-                <div style={{ flex: 1, background: colors.primary }} />
-                <div style={{ flex: 1, background: colors.accent }} />
-              </div>
-              <div style={{ fontWeight: active ? 700 : 500, fontSize: '13px', color: 'var(--color-text-primary)' }}>
+              {active && (
+                <span style={{ position: 'absolute', top: '10px', right: '12px', fontSize: '14px', color: 'white' }}>✓</span>
+              )}
+              <div style={{ fontWeight: 700, fontSize: '14px', color: 'white', marginTop: '16px' }}>
                 {THEME_NAMES[t]}
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.75)', marginTop: '3px' }}>
                 테마 {t}
               </div>
             </button>
@@ -175,6 +161,83 @@ function Step2({ selectedTheme, onSelect, onNext }: {
       >
         다음
       </button>
+    </div>
+  );
+}
+
+function YearPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const currentYear = new Date().getFullYear();
+  const years: number[] = [];
+  for (let y = currentYear; y >= 1900; y--) years.push(y);
+
+  const ITEM_HEIGHT = 48;
+  const VISIBLE = 5;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scrolling = useRef(false);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const idx = value ? years.indexOf(parseInt(value, 10)) : 0;
+    containerRef.current.scrollTop = Math.max(0, idx) * ITEM_HEIGHT;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleScroll() {
+    if (!containerRef.current) return;
+    if (scrolling.current) return;
+    scrolling.current = true;
+    requestAnimationFrame(() => {
+      scrolling.current = false;
+      if (!containerRef.current) return;
+      const idx = Math.round(containerRef.current.scrollTop / ITEM_HEIGHT);
+      const year = years[Math.min(idx, years.length - 1)];
+      if (year !== undefined) onChange(year.toString());
+    });
+  }
+
+  return (
+    <div style={{ position: 'relative', height: `${ITEM_HEIGHT * VISIBLE}px`, overflow: 'hidden', borderRadius: 'var(--radius-md)', border: '2px solid var(--color-border)', background: 'var(--color-bg)' }}>
+      {/* Selection highlight */}
+      <div style={{
+        position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+        left: 0, right: 0, height: `${ITEM_HEIGHT}px`,
+        background: 'var(--color-primary-light)',
+        borderTop: '1px solid var(--color-primary)',
+        borderBottom: '1px solid var(--color-primary)',
+        pointerEvents: 'none', zIndex: 1,
+      }} />
+      {/* Fade top */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: `${ITEM_HEIGHT * 2}px`, background: 'linear-gradient(to bottom, var(--color-bg) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
+      {/* Fade bottom */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${ITEM_HEIGHT * 2}px`, background: 'linear-gradient(to top, var(--color-bg) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        style={{
+          height: '100%', overflowY: 'scroll',
+          scrollSnapType: 'y mandatory',
+          paddingTop: `${ITEM_HEIGHT * 2}px`,
+          paddingBottom: `${ITEM_HEIGHT * 2}px`,
+          scrollbarWidth: 'none',
+        }}
+      >
+        {years.map(year => {
+          const selected = value === year.toString();
+          return (
+            <div
+              key={year}
+              style={{
+                height: `${ITEM_HEIGHT}px`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: selected ? '20px' : '17px', fontWeight: selected ? 700 : 400,
+                scrollSnapAlign: 'center',
+                color: selected ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                transition: 'font-size 0.1s, color 0.1s',
+              }}
+            >
+              {year}년
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

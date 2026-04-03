@@ -51,7 +51,7 @@ export default function MapTab() {
         style={{ flex: 1, overflow: 'hidden', position: 'relative', background: 'var(--color-map-bg)' }}
         onClick={handleDismissPopup}
       >
-        <div style={{ padding: '8px', height: '100%', display: 'flex', alignItems: 'center' }}
+        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
           onClick={e => e.stopPropagation()}>
           <KoreaMap
             regionColors={regionColors}
@@ -62,17 +62,22 @@ export default function MapTab() {
         {/* Empty state */}
         {isEmpty && (
           <div style={{
-            position: 'absolute', top: '30%', left: 0, right: 0,
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
             pointerEvents: 'none',
           }}>
-            <p style={{
-              fontSize: '15px', fontWeight: 600, color: 'var(--color-primary-deep)',
-              background: 'rgba(255,255,255,0.85)', padding: '10px 18px',
-              borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)',
+            <div style={{
+              background: 'rgba(255,255,255,0.92)', borderRadius: 'var(--radius-md)',
+              padding: '28px 36px', textAlign: 'center', boxShadow: 'var(--shadow-sm)',
             }}>
-              0개의 추억에서 하나씩 쌓입니다
-            </p>
+              <div style={{ fontSize: '36px', marginBottom: '10px' }}>🍃</div>
+              <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-primary-deep)', marginBottom: '6px' }}>
+                아직 추억이 없어요
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                + 버튼으로 첫 추억을 기록해보세요
+              </p>
+            </div>
           </div>
         )}
 
