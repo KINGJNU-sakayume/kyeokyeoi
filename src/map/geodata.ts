@@ -64,6 +64,34 @@ const PROVINCE_MAP: Record<string, string> = {
   '39': '제주특별자치도',
 };
 
+// Standard abbreviated display names for each province
+export const PROVINCE_ABBR: Record<string, string> = {
+  '서울특별시':   '서울',
+  '부산광역시':   '부산',
+  '대구광역시':   '대구',
+  '인천광역시':   '인천',
+  '광주광역시':   '광주',
+  '대전광역시':   '대전',
+  '울산광역시':   '울산',
+  '세종특별자치시': '세종',
+  '경기도':       '경기',
+  '강원특별자치도': '강원',
+  '충청북도':     '충북',
+  '충청남도':     '충남',
+  '전북특별자치도': '전북',
+  '전라남도':     '전남',
+  '경상북도':     '경북',
+  '경상남도':     '경남',
+  '제주특별자치도': '제주',
+};
+
+// Administrative hierarchy order (official Korean ordering)
+const PROVINCE_ORDER = [
+  '서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시',
+  '대전광역시', '울산광역시', '세종특별자치시', '경기도', '강원특별자치도',
+  '충청북도', '충청남도', '전북특별자치도', '전라남도', '경상북도', '경상남도', '제주특별자치도',
+];
+
 function getProvince(code: string): string {
   // Code is 5-digit; first 2 digits map to province
   const prefix = code.substring(0, 2);
@@ -143,7 +171,8 @@ export function getRegionByCode(code: string, regions: RegionData[]): RegionData
 }
 
 export function getProvinces(regions: RegionData[]): string[] {
-  return Array.from(new Set(regions.map(r => r.province ?? ''))).filter(Boolean).sort();
+  const available = new Set(regions.map(r => r.province ?? '').filter(Boolean));
+  return PROVINCE_ORDER.filter(p => available.has(p));
 }
 
 export function getRegionsByProvince(province: string, regions: RegionData[]): RegionData[] {
