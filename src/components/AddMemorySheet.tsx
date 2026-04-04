@@ -228,6 +228,7 @@ export default function AddMemorySheet() {
       {/* Sheet */}
       <div
         ref={sheetRef}
+        className="modal-container"
         style={{
           position: 'fixed', bottom: 0, left: '50%', transform: `translateX(-50%) translateY(${dragOffset}px)`,
           width: '100%', maxWidth: '480px',
