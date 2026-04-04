@@ -45,13 +45,16 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export default function BottomTabBar({ activeTab, onTabChange }: BottomTabBarProps) {
   return (
-    <nav style={{
-      display: 'flex',
-      height: 'var(--tab-bar-height)',
-      borderTop: '1px solid var(--color-border)',
-      background: 'var(--color-bg)',
-      flexShrink: 0,
-    }}>
+    <nav
+      className="bottom-tab-bar"
+      style={{
+        display: 'flex',
+        minHeight: 'var(--tab-bar-height)',
+        borderTop: '1px solid var(--color-border)',
+        background: 'var(--color-bg)',
+        flexShrink: 0,
+      }}
+    >
       {TABS.map(tab => {
         const active = tab.id === activeTab;
         return (
