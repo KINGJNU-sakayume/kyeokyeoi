@@ -2,120 +2,81 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../AppContext';
 import MemoryCard from '../components/MemoryCard';
 import { sortMemories } from '../utils/timeUtils';
-import type { Memory } from '../db/index';
+import { IconPlus } from '../components/icons';
 
 type Filter = 'all' | 'first' | 'photo';
 
-const FILTER_LABELS: Record<Filter, string> = {
-  all: '전체',
-  first: '첫 경험',
-  photo: '사진 있는 것',
-};
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: '전부' },
+  { id: 'first', label: '첫 경험' },
+  { id: 'photo', label: '사진 있는 것' },
+];
 
 export default function TimelineTab() {
   const { memories, navigate, openAddSheet } = useApp();
   const [filter, setFilter] = useState<Filter>('all');
 
-  const filtered: Memory[] = useMemo(() => {
-    switch (filter) {
-      case 'first': return memories.filter(m => m.isFirst);
-      case 'photo': return memories.filter(m => m.photos.length > 0);
-      default: return memories;
-    }
+  const groups = useMemo(() => {
+    const list = filter === 'first' ? memories.filter(m => m.isFirst)
+      : filter === 'photo' ? memories.filter(m => m.photoIds.length > 0)
+      : memories;
+    return sortMemories(list);
   }, [memories, filter]);
 
-  const groups = useMemo(() => sortMemories(filtered), [filtered]);
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
-      <div style={{
-        padding: '16px 16px 0',
-        background: 'var(--color-bg)',
-        borderBottom: '1px solid var(--color-border)',
-        flexShrink: 0,
-      }}>
-        <h1 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--color-primary-deep)', marginBottom: '12px' }}>
-          타임라인
-        </h1>
-        {/* Filter chips */}
-        <div style={{ display: 'flex', gap: '8px', paddingBottom: '12px', overflowX: 'auto' }}>
-          {(['all', 'first', 'photo'] as Filter[]).map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{
-                padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: 500,
-                whiteSpace: 'nowrap', flexShrink: 0,
-                background: filter === f ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
-                color: filter === f ? 'white' : 'var(--color-text-secondary)',
-                border: `1px solid ${filter === f ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                transition: 'all 0.15s',
-                cursor: 'pointer',
-              }}
-            >
-              {FILTER_LABELS[f]}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="screen">
+      <div className="screen__scroll">
+        <header className="page-head">
+          <h1 className="page-title">타임라인</h1>
+        </header>
 
-      {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 80px' }}>
-        {groups.length === 0 ? (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            paddingTop: '60px', gap: '12px',
-          }}>
-            <p style={{ fontSize: '15px', color: 'var(--color-text-secondary)', textAlign: 'center', lineHeight: 1.6 }}>
-              {filter === 'all'
-                ? '아직 기록된 추억이 없어요.\n첫 추억을 남겨보세요!'
-                : '해당하는 추억이 없어요.'}
-            </p>
-            {filter === 'all' && (
-              <button
-                onClick={openAddSheet}
-                style={{
-                  padding: '10px 20px',
-                  background: 'var(--color-primary)', color: 'white',
-                  borderRadius: 'var(--radius-md)', fontSize: '14px', fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                + 추억 추가
+        {memories.length > 0 && (
+          <div className="filters" role="group" aria-label="보기">
+            {FILTERS.map(f => (
+              <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+                {f.label}
               </button>
-            )}
+            ))}
+          </div>
+        )}
+
+        {memories.length === 0 ? (
+          <div className="empty">
+            <p className="empty__title">첫 겹을 쌓아 볼까요</p>
+            <p className="empty__body">기억나는 순간 하나를 적으면 그 해의 층이 생겨요. 날짜를 몰라도 ‘중학교 2학년’, ‘어릴 때’처럼 적을 수 있어요.</p>
+            <button type="button" className="btn" onClick={() => openAddSheet()}><IconPlus />기록하기</button>
+          </div>
+        ) : groups.length === 0 ? (
+          <div className="empty">
+            <p className="empty__body">{filter === 'first' ? '첫 경험으로 표시한 추억이 아직 없어요.' : '사진을 붙인 추억이 아직 없어요.'}</p>
           </div>
         ) : (
-          groups.map((group, gi) => (
-            <section key={gi} style={{ marginBottom: '24px' }}>
-              {/* Year header */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px',
-              }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-primary-deep)', flexShrink: 0 }}>
-                  {group.isMemorySection ? '기억 속' : `${group.year}년`}
-                </h2>
-                <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
-                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
-                  {group.memories.length}개
-                </span>
-              </div>
-
-              {/* Cards */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {group.memories.map(m => (
-                  <MemoryCard
-                    key={m.id}
-                    memory={m}
-                    onClick={() => navigate({ type: 'detail', memoryId: m.id })}
-                  />
-                ))}
-              </div>
-            </section>
-          ))
+          <div className="strata">
+            {groups.map(g => (
+              <section key={g.year ?? 'memory'} className="stratum" aria-label={g.isMemorySection ? '때를 모르는 추억' : `${g.year}년`}>
+                <div className="stratum__year">
+                  <span className="stratum__year-label">
+                    {g.isMemorySection ? '언젠가' : g.year}
+                    <small>{g.memories.length}개</small>
+                  </span>
+                </div>
+                <div className="stratum__items">
+                  {g.memories.map(m => (
+                    <MemoryCard key={m.id} memory={m} onClick={() => navigate({ type: 'detail', memoryId: m.id })} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
         )}
       </div>
+
+      {memories.length > 0 && (
+        <button type="button" className="add-fab" onClick={() => openAddSheet()}>
+          <IconPlus />
+          기록하기
+        </button>
+      )}
     </div>
   );
 }

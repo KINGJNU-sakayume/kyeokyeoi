@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { loadRegions, getProvinces, getRegionsByProvince, PROVINCE_ABBR } from '../map/geodata'
-import type { RegionData } from '../map/geodata';
+import { useMemo, useState } from 'react';
+import { PROVINCES, provinceOf, regionLabel, regionsInProvince, unionBox, useRegions } from '../map/geodata';
 import KoreaMap from '../map/KoreaMap';
+import Sheet from './Sheet';
 
 interface RegionPickerProps {
   onSelect: (code: string, label: string) => void;
@@ -9,164 +9,96 @@ interface RegionPickerProps {
   currentCode?: string | null;
 }
 
+/** 시군구 고르기: 이름으로 찾거나, 시·도를 고른 뒤 목록에서 골라요. 위 지도는 고른 곳을 보여주기만 해요. */
 export default function RegionPicker({ onSelect, onClose, currentCode }: RegionPickerProps) {
-  const [regions, setRegions] = useState<RegionData[]>([]);
-  const [provinces, setProvinces] = useState<string[]>([]);
-  const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
-  const [selectedCode, setSelectedCode] = useState<string | null>(currentCode ?? null);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const set = useRegions();
+  const current = currentCode && set ? set.byCode.get(currentCode) : undefined;
+  const [prov, setProv] = useState<string>(current?.prov ?? '11');
+  const [code, setCode] = useState<string | null>(currentCode ?? null);
+  const [query, setQuery] = useState('');
 
-  useEffect(() => {
-    loadRegions().then(r => {
-      setRegions(r);
-      setProvinces(getProvinces(r));
-    });
-  }, []);
+  const q = query.trim().replace(/\s+/g, '');
+  const list = useMemo(() => {
+    if (!set) return [];
+    if (q) {
+      return set.regions
+        .filter(r => (provinceOf(r)?.name + r.name).replace(/\s+/g, '').includes(q) || regionLabel(r).replace(/\s+/g, '').includes(q))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+        .slice(0, 40);
+    }
+    return regionsInProvince(set, prov);
+  }, [set, q, prov]);
 
-  const municipalitiesInProvince = selectedProvince
-    ? getRegionsByProvince(selectedProvince, regions)
-    : [];
+  const selected = code && set ? set.byCode.get(code) : undefined;
+  const focus = useMemo(() => {
+    if (!set) return null;
+    if (selected) return selected.box;
+    return unionBox(q ? list : regionsInProvince(set, prov));
+  }, [set, selected, prov, q, list]);
+  const fills = useMemo(() => {
+    const m = new Map<string, string>();
+    if (set && !selected) (q ? list : regionsInProvince(set, prov)).forEach(r => m.set(r.code, 'var(--heat-1)'));
+    if (selected) m.set(selected.code, 'var(--heat-3)');
+    return m;
+  }, [set, selected, prov, q, list]);
 
-  const selectedRegion = selectedCode ? regions.find(r => r.code === selectedCode) : null;
-
-  function handleConfirm() {
-    if (!selectedCode || !selectedRegion) return;
-    const province = selectedRegion.province ?? '';
-    const label = province ? `${province} ${selectedRegion.name}` : selectedRegion.name;
-    onSelect(selectedCode, label);
+  function confirm() {
+    if (!selected) return;
+    onSelect(selected.code, regionLabel(selected));
     onClose();
   }
 
-  function handleMapClick(code: string) {
-    const region = regions.find(r => r.code === code);
-    if (region) {
-      setSelectedCode(code);
-      setSelectedProvince(region.province ?? null);
-    }
-  }
-
-  const selectedColors = new Map<string, string>();
-  if (selectedCode) {
-    selectedColors.set(selectedCode, 'var(--color-primary-deep)');
-  }
-
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 60,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex', alignItems: 'flex-end',
-      }}
-      onClick={onClose}
+    <Sheet
+      label="장소 고르기"
+      size="tall"
+      onClose={onClose}
+      left={<button type="button" className="text-btn text-btn--muted" onClick={onClose}>취소</button>}
+      title="장소"
+      right={<button type="button" className="text-btn" onClick={confirm} disabled={!selected}>고르기</button>}
     >
-      <div
-        ref={sheetRef}
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: '100%', maxWidth: '480px', margin: '0 auto',
-          background: 'var(--color-bg)',
-          borderTopLeftRadius: 'var(--radius-lg)',
-          borderTopRightRadius: 'var(--radius-lg)',
-          maxHeight: '90dvh',
-          display: 'flex', flexDirection: 'column',
-          animation: 'slideUp 0.25s ease',
-        }}
-      >
-        {/* Handle */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
-          <div style={{ width: '36px', height: '4px', background: 'var(--color-border)', borderRadius: '2px' }} />
+      <div className="picker-map" aria-hidden="true">
+        <KoreaMap interactive={false} fills={fills} selectedCode={code} focusBox={focus} />
+      </div>
+      <div className="picker-search">
+        <input
+          className="input"
+          type="search"
+          placeholder="시군구 이름으로 찾기"
+          aria-label="시군구 이름으로 찾기"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+        />
+      </div>
+      {!q && (
+        <div className="province-row" role="group" aria-label="시·도">
+          {PROVINCES.map(p => (
+            <button key={p.code} type="button" className="chip" aria-pressed={prov === p.code}
+              onClick={() => { setProv(p.code); setCode(null); }}>
+              {p.short}
+            </button>
+          ))}
         </div>
-
-        {/* Header */}
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '8px 16px 12px',
-        }}>
-          <h3 style={{ fontSize: '17px', fontWeight: 700 }}>지역 선택</h3>
-          <button onClick={onClose} style={{ fontSize: '20px', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>×</button>
-        </div>
-
-        {/* Mini map */}
-        <div style={{ padding: '0 16px', flexShrink: 0 }}>
-          <KoreaMap
-            compact
-            regionColors={selectedColors}
-            onRegionClick={handleMapClick}
-            selectedCode={selectedCode}
-          />
-        </div>
-
-        {/* Province selector */}
-        <div style={{ padding: '12px 16px 4px', flexShrink: 0 }}>
-          <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '8px' }}>
-            시/도 선택
-          </label>
-          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
-            {provinces.map(p => (
-              <button
-                key={p}
-                onClick={() => { setSelectedProvince(p); setSelectedCode(null); }}
-                style={{
-                  padding: '6px 12px', borderRadius: '16px', fontSize: '13px',
-                  whiteSpace: 'nowrap', flexShrink: 0, cursor: 'pointer',
-                  background: selectedProvince === p ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
-                  color: selectedProvince === p ? 'white' : 'var(--color-text-secondary)',
-                  border: `1px solid ${selectedProvince === p ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                  transition: 'all 0.15s',
-                }}
-              >
-                {PROVINCE_ABBR[p] ?? p}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Municipality list */}
-        {selectedProvince && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '8px' }}>
-              시/군/구 선택
-            </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {municipalitiesInProvince.map(r => (
-                <button
-                  key={r.code}
-                  onClick={() => setSelectedCode(r.code)}
-                  style={{
-                    padding: '7px 13px', borderRadius: '16px', fontSize: '13px',
-                    cursor: 'pointer',
-                    background: selectedCode === r.code ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
-                    color: selectedCode === r.code ? 'white' : 'var(--color-text-primary)',
-                    border: `1px solid ${selectedCode === r.code ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                    transition: 'all 0.15s',
-                    fontWeight: selectedCode === r.code ? 600 : 400,
-                  }}
-                >
-                  {r.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Confirm button */}
-        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>
-          <button
-            onClick={handleConfirm}
-            disabled={!selectedCode}
-            style={{
-              width: '100%', padding: '14px',
-              background: selectedCode ? 'var(--color-primary)' : 'var(--color-border)',
-              color: selectedCode ? 'white' : 'var(--color-text-secondary)',
-              borderRadius: 'var(--radius-md)', fontSize: '15px', fontWeight: 600,
-              cursor: selectedCode ? 'pointer' : 'not-allowed',
-              transition: 'all 0.2s',
-            }}
-          >
-            {selectedCode && selectedRegion ? `${selectedRegion.name} 선택` : '이 지역으로 선택'}
-          </button>
+      )}
+      <div className="sheet__body">
+        {set === null && <p className="field__hint">지도 데이터를 불러오지 못했어요. 인터넷에 연결된 뒤 다시 열어 주세요.</p>}
+        {q && list.length === 0 && <p className="field__hint">‘{query}’에 맞는 시군구가 없어요.</p>}
+        <div className="place-list">
+          {list.map(r => (
+            <button
+              key={r.code}
+              type="button"
+              className="place"
+              aria-pressed={code === r.code}
+              onClick={() => setCode(r.code)}
+              onDoubleClick={() => { onSelect(r.code, regionLabel(r)); onClose(); }}
+            >
+              {r.name}
+              {q && <small>{provinceOf(r)?.short}</small>}
+            </button>
+          ))}
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }

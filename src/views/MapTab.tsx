@@ -1,191 +1,81 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '../AppContext';
 import KoreaMap from '../map/KoreaMap';
-import { getVisitCounts, getMemoriesByRegion, getVisitedRegionCount, getCoveragePercent } from '../map/regionUtils';
-import { getHeatmapColor } from '../theme/index';
-import { loadRegions } from '../map/geodata';
-
-interface Popup {
-  regionCode: string;
-  regionName: string;
-  x: number;
-  y: number;
-}
+import { regionLabel, useRegions } from '../map/geodata';
+import { getMemoriesByRegion, getVisitCounts, heatFill } from '../map/regionUtils';
+import MemoryCard from '../components/MemoryCard';
+import Sheet from '../components/Sheet';
+import { IconPlus } from '../components/icons';
 
 export default function MapTab() {
-  const { memories, theme, openAddSheet, navigate } = useApp();
-  const [popup, setPopup] = useState<Popup | null>(null);
-  const [totalRegions, setTotalRegions] = useState(0);
+  const { memories, openAddSheet, navigate } = useApp();
+  const set = useRegions();
+  const [picked, setPicked] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadRegions().then(r => setTotalRegions(r.length));
-  }, []);
+  const counts = useMemo(() => getVisitCounts(memories), [memories]);
+  const fills = useMemo(() => {
+    const m = new Map<string, string>();
+    counts.forEach((n, code) => m.set(code, heatFill(n)));
+    return m;
+  }, [counts]);
 
-  const visitCounts = useMemo(() => getVisitCounts(memories), [memories]);
-  const regionColors = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const [code, count] of visitCounts) {
-      map.set(code, getHeatmapColor(count, theme));
-    }
-    return map;
-  }, [visitCounts, theme]);
-
-  const visitedCount = useMemo(() => getVisitedRegionCount(memories), [memories]);
-  const coverage = useMemo(() => getCoveragePercent(visitedCount, totalRegions), [visitedCount, totalRegions]);
-  const isEmpty = memories.length === 0;
-
-  function handleRegionClick(code: string, name: string, x: number, y: number) {
-    setPopup({ regionCode: code, regionName: name, x, y });
-  }
-
-  function handleDismissPopup() {
-    setPopup(null);
-  }
-
-  const popupMemories = popup ? getMemoriesByRegion(popup.regionCode, memories) : [];
+  const region = picked && set ? set.byCode.get(picked) : undefined;
+  const here = picked ? getMemoriesByRegion(picked, memories) : [];
+  const total = set?.regions.length ?? 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Map area */}
-      <div
-        style={{ flex: 1, overflow: 'hidden', position: 'relative', background: 'var(--color-map-bg)' }}
-        onClick={handleDismissPopup}
-      >
-        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
-          onClick={e => e.stopPropagation()}>
-          <KoreaMap
-            regionColors={regionColors}
-            onRegionClick={handleRegionClick}
-          />
+    <>
+      <header className="map-head">
+        <h1 className="wordmark">켜켜이</h1>
+        <p className="map-head__summary">
+          {memories.length === 0
+            ? '다녀온 곳을 기록하면 지도에 짙게 쌓여요.'
+            : <>시군구 {total}곳 중 <strong>{counts.size}곳</strong>에 추억 {memories.length}개</>}
+        </p>
+      </header>
+
+      {memories.length > 0 && (
+        <div className="map-legend" aria-hidden="true">
+          적음
+          <span className="map-legend__ramp">
+            <span style={{ background: 'var(--heat-1)' }} />
+            <span style={{ background: 'var(--heat-2)' }} />
+            <span style={{ background: 'var(--heat-3)' }} />
+            <span style={{ background: 'var(--heat-4)' }} />
+          </span>
+          많음
         </div>
+      )}
 
-        {/* Empty state */}
-        {isEmpty && (
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            pointerEvents: 'none',
-          }}>
-            <div style={{
-              background: 'rgba(255,255,255,0.92)', borderRadius: 'var(--radius-md)',
-              padding: '28px 36px', textAlign: 'center', boxShadow: 'var(--shadow-sm)',
-            }}>
-              <div style={{ fontSize: '36px', marginBottom: '10px' }}>🍃</div>
-              <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-primary-deep)', marginBottom: '6px' }}>
-                아직 추억이 없어요
-              </p>
-              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-                + 버튼으로 첫 추억을 기록해보세요
-              </p>
-            </div>
+      <KoreaMap fills={fills} selectedCode={picked} onRegionTap={setPicked} />
+
+      <button type="button" className="add-fab" onClick={() => openAddSheet()}>
+        <IconPlus />
+        기록하기
+      </button>
+
+      {region && (
+        <Sheet label={`${region.name} 추억`} onClose={() => setPicked(null)}>
+          <div className="region-sheet__head">
+            <h2 className="region-sheet__name">{regionLabel(region)}</h2>
+            <p className="region-sheet__count">{here.length ? `추억 ${here.length}개` : '아직 이곳의 추억이 없어요.'}</p>
           </div>
-        )}
-
-        {/* Region popup */}
-        {popup && (
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: 'absolute',
-              left: Math.min(popup.x, 280),
-              top: popup.y > 200 ? popup.y - 140 : popup.y + 10,
-              zIndex: 20,
-              background: 'var(--color-bg)',
-              borderRadius: 'var(--radius-md)',
-              boxShadow: 'var(--shadow-md)',
-              padding: '12px 14px',
-              minWidth: '160px',
-              maxWidth: '220px',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-primary)', marginBottom: '4px' }}>
-              {popup.regionName}
+          {here.length > 0 && (
+            <div className="region-sheet__list">
+              {here.map(m => (
+                <MemoryCard key={m.id} memory={m} hideRegion
+                  onClick={() => { setPicked(null); navigate({ type: 'detail', memoryId: m.id }); }} />
+              ))}
             </div>
-            <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
-              추억 {popupMemories.length}개
-            </div>
-            {popupMemories.slice(0, 3).map(m => (
-              <button
-                key={m.id}
-                onClick={() => { navigate({ type: 'detail', memoryId: m.id }); setPopup(null); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left',
-                  fontSize: '13px', padding: '4px 0',
-                  color: 'var(--color-text-primary)', cursor: 'pointer',
-                  borderBottom: '1px solid var(--color-border)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}
-              >
-                {m.title}
-              </button>
-            ))}
-            {popupMemories.length > 3 && (
-              <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                +{popupMemories.length - 3}개 더
-              </p>
-            )}
-            <button
-              onClick={handleDismissPopup}
-              style={{
-                marginTop: '8px', fontSize: '12px', color: 'var(--color-text-secondary)',
-                padding: '4px 0',
-              }}
-            >
-              닫기
+          )}
+          <div className="region-sheet__foot">
+            <button type="button" className="btn btn--block"
+              onClick={() => { setPicked(null); openAddSheet({ regionCode: region.code, regionLabel: regionLabel(region) }); }}>
+              여기서의 추억 기록하기
             </button>
           </div>
-        )}
-
-        {/* FAB */}
-        <button
-          onClick={() => { handleDismissPopup(); openAddSheet(); }}
-          style={{
-            position: 'absolute', bottom: '16px', right: '16px',
-            width: '52px', height: '52px',
-            borderRadius: '50%',
-            background: 'var(--color-accent)',
-            color: 'white',
-            fontSize: '28px', fontWeight: 300,
-            boxShadow: 'var(--shadow-md)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 10,
-            animation: isEmpty ? 'pulse 1.8s ease-in-out infinite' : 'none',
-            transition: 'transform 0.15s',
-          }}
-          aria-label="추억 추가"
-        >
-          +
-        </button>
-      </div>
-
-      {/* Stats row */}
-      <div style={{
-        display: 'flex',
-        borderTop: '1px solid var(--color-border)',
-        background: 'var(--color-bg)',
-        flexShrink: 0,
-      }}>
-        {[
-          { label: '방문 지역', value: `${visitedCount}곳` },
-          { label: '커버리지', value: `${coverage}%` },
-          { label: '총 추억', value: `${memories.length}개` },
-        ].map((stat, i) => (
-          <div key={i} style={{
-            flex: 1,
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            padding: '12px 8px',
-            borderRight: i < 2 ? '1px solid var(--color-border)' : 'none',
-          }}>
-            <span style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-primary)' }}>
-              {stat.value}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-              {stat.label}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
+        </Sheet>
+      )}
+    </>
   );
 }

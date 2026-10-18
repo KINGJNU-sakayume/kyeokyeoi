@@ -8,29 +8,16 @@ export const THEME_NAMES: Record<Theme, string> = {
   D: '황혼·모래',
 };
 
-export const THEME_COLORS: Record<Theme, { primary: string; primaryDeep: string; accent: string; mapBg: string }> = {
-  A: { primary: '#4A7A5A', primaryDeep: '#2D5040', accent: '#C8874A', mapBg: '#D8EDE5' },
-  B: { primary: '#3A3A38', primaryDeep: '#1C1C1A', accent: '#C04038', mapBg: '#E8E3D9' },
-  C: { primary: '#2E5480', primaryDeep: '#1D3A58', accent: '#5E9B88', mapBg: '#D4E5F4' },
-  D: { primary: '#7C5030', primaryDeep: '#5C3820', accent: '#C49A20', mapBg: '#EEE0CC' },
-};
-
-export const HEATMAP_COLORS: Record<Theme, [string, string, string, string]> = {
-  A: ['#B8DFC5', '#7AAF8E', '#4A7A5A', '#2D5040'],
-  B: ['#C8C6C2', '#9A9894', '#3A3A38', '#1C1C1A'],
-  C: ['#B5CFEC', '#7AAAD8', '#2E5480', '#1D3A58'],
-  D: ['#DEC4A8', '#C09872', '#7C5030', '#5C3820'],
+/** 설정 화면 견본용. 실제 색은 index.css의 [data-theme]에 있어요. */
+export const THEME_SWATCH: Record<Theme, { paper: string; land: string; primary: string; deep: string; accent: string }> = {
+  A: { paper: '#F5F7F3', land: '#DCE3DA', primary: '#3D6A4E', deep: '#203A2A', accent: '#2C4C8A' },
+  B: { paper: '#F3F1EC', land: '#E0DCD2', primary: '#3A3935', deep: '#191917', accent: '#A8362B' },
+  C: { paper: '#F2F5F8', land: '#DAE1EA', primary: '#2B4F7A', deep: '#15294A', accent: '#3D7566' },
+  D: { paper: '#F7F2EB', land: '#E6DCCD', primary: '#8A5532', deep: '#4F2D14', accent: '#7F5A0E' },
 };
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.setAttribute('data-theme', theme);
-}
-
-export function getHeatmapColor(count: number, theme: Theme): string {
-  if (count === 0) return '#DDDDD6';
-  const stops = HEATMAP_COLORS[theme];
-  if (count <= 2) return stops[0];
-  if (count <= 5) return stops[1];
-  if (count <= 10) return stops[2];
-  return stops[3];
+  const meta = document.querySelector('meta[name="theme-color"]');
+  meta?.setAttribute('content', THEME_SWATCH[theme].paper);
 }

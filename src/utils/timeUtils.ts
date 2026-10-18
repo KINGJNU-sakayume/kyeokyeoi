@@ -9,13 +9,6 @@ const SEASON_KO: Record<string, SeasonKo> = {
   winter: '겨울',
 };
 
-const SEASON_MONTH: Record<string, number> = {
-  spring: 3,
-  summer: 6,
-  autumn: 9,
-  winter: 12,
-};
-
 const SCHOOL_KO: Record<string, string> = {
   elementary: '초등학교',
   middle: '중학교',
@@ -125,14 +118,10 @@ export function sortMemories(memories: Memory[]): TimelineGroup[] {
     yearMap.get(year)!.push(m);
   }
 
-  // Sort within each year group
-  for (const [, group] of yearMap) {
-    group.sort((a, b) => {
-      const rankA = getIntraYearRank(a);
-      const rankB = getIntraYearRank(b);
-      return rankA - rankB;
-    });
-  }
+  // 한 해 안에서는 늦은 때가 위로 (날짜 > 달 > 계절 순으로 추정), 때를 모르면 아래로
+  const byRecent = (a: Memory, b: Memory) => getIntraYearKey(b) - getIntraYearKey(a) || b.createdAt - a.createdAt;
+  for (const [, group] of yearMap) group.sort(byRecent);
+  memoriesSection.sort((a, b) => b.createdAt - a.createdAt);
 
   // Build result: years descending
   const sortedYears = Array.from(yearMap.keys()).sort((a, b) => b - a);
@@ -150,30 +139,14 @@ export function sortMemories(memories: Memory[]): TimelineGroup[] {
   return groups;
 }
 
-// Returns a sort key within a year group (lower = earlier in list)
-function getIntraYearRank(memory: Memory): number {
+const SEASON_MID_MONTH: Record<string, number> = { spring: 4, summer: 7, autumn: 10, winter: 12 };
+
+/** 한 해 안에서의 대략적인 위치 (월 단위, 모르면 -1) */
+function getIntraYearKey(memory: Memory): number {
   const { timeType, timeValue } = memory;
-
-  if (timeType === 'year') return 0; // year-only first
-
-  if (timeType === 'season') {
-    const seasonMonth = timeValue?.season ? SEASON_MONTH[timeValue.season] : 0;
-    // Range 100–149: season cards, higher month = lower rank number
-    return 100 + (12 - seasonMonth);
+  if ((timeType === 'date' || timeType === 'month') && timeValue?.month) {
+    return timeValue.month + (timeValue.day ? timeValue.day / 100 : 0);
   }
-
-  // month/date cards
-  if (timeType === 'date' || timeType === 'month') {
-    const month = timeValue?.month ?? 0;
-    // Range 50–99: month/date cards
-    // Within same month, date > month-only (slightly lower rank)
-    const dayBonus = timeType === 'date' ? 0 : 0.5;
-    return 50 + (12 - month) + dayBonus;
-  }
-
-  if (timeType === 'age' || timeType === 'grade') {
-    return 200;
-  }
-
-  return 300;
+  if (timeType === 'season' && timeValue?.season) return SEASON_MID_MONTH[timeValue.season] - 0.5;
+  return -1;
 }

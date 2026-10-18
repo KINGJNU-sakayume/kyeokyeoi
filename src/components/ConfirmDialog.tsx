@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 interface ConfirmDialogProps {
   message: string;
   subMessage?: string;
@@ -5,63 +7,29 @@ interface ConfirmDialogProps {
   onCancel: () => void;
   confirmLabel?: string;
   destructive?: boolean;
+  busy?: boolean;
 }
 
-export default function ConfirmDialog({ message, subMessage, onConfirm, onCancel, confirmLabel = '확인', destructive }: ConfirmDialogProps) {
+export default function ConfirmDialog({ message, subMessage, onConfirm, onCancel, confirmLabel = '확인', destructive, busy }: ConfirmDialogProps) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); onCancel(); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onCancel]);
+
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 100,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '24px',
-        animation: 'fadeIn 0.15s ease',
-      }}
-      onClick={onCancel}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: 'var(--color-bg)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '24px',
-          width: '100%',
-          maxWidth: '320px',
-          boxShadow: 'var(--shadow-lg)',
-        }}
-      >
-        <p style={{ fontWeight: 700, fontSize: '16px', marginBottom: subMessage ? '8px' : '20px', textAlign: 'center' }}>
-          {message}
-        </p>
-        {subMessage && (
-          <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '20px', textAlign: 'center', lineHeight: 1.5 }}>
-            {subMessage}
-          </p>
-        )}
-        <div style={{ display: 'flex', gap: '10px' }}>
+    <div className="dialog-wrap" onClick={onCancel}>
+      <div className="dialog" role="alertdialog" aria-modal="true" aria-label={message} onClick={e => e.stopPropagation()}>
+        <p className="dialog__title">{message}</p>
+        {subMessage && <p className="dialog__body">{subMessage}</p>}
+        <div className="dialog__actions">
+          <button type="button" className="text-btn text-btn--muted" onClick={onCancel}>취소</button>
           <button
-            onClick={onCancel}
-            style={{
-              flex: 1, padding: '12px',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              fontSize: '15px', fontWeight: 500,
-              cursor: 'pointer', background: 'var(--color-bg)',
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            취소
-          </button>
-          <button
+            type="button"
+            className={destructive ? 'text-btn text-btn--danger' : 'text-btn'}
             onClick={onConfirm}
-            style={{
-              flex: 1, padding: '12px',
-              background: destructive ? 'var(--color-destructive)' : 'var(--color-primary)',
-              color: 'white',
-              borderRadius: 'var(--radius-md)',
-              fontSize: '15px', fontWeight: 600,
-              cursor: 'pointer',
-            }}
+            disabled={busy}
+            autoFocus
           >
             {confirmLabel}
           </button>
