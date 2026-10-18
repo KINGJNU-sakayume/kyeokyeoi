@@ -12,13 +12,13 @@ export default defineConfig({
       manifest: {
         name: '켜켜이',
         short_name: '켜켜이',
-        description: '추억을 켜켜이 쌓는 인생 아카이브',
+        description: '지나온 장소와 시간을 한 겹씩 쌓아 두는 기록장',
         start_url: '/kyeokyeoi/',
         scope: '/kyeokyeoi/',
         display: 'standalone',
         orientation: 'portrait',
-        theme_color: '#4A7A5A',
-        background_color: '#FFFFFF',
+        theme_color: '#F5F7F3',
+        background_color: '#F5F7F3',
         lang: 'ko',
         icons: [
           {
@@ -40,20 +40,17 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,svg,png,woff,woff2}'],
+        // 앱 셸과 지도 데이터는 미리 받아 두고, 글꼴 조각은 처음 쓸 때 받아서 보관해요
+        globPatterns: ['**/*.{js,css,html,svg,png,json}'],
+        globIgnores: ['**/manifest.webmanifest'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,
+            urlPattern: ({ request }) => request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'cdn-fonts',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
+              cacheName: 'fonts',
+              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],

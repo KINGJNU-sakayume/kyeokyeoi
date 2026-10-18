@@ -1,93 +1,39 @@
 import type { Memory } from '../db/index';
 import { formatTimeDisplay } from '../utils/timeUtils';
+import { usePhotoURL } from '../utils/photoUtils';
+import { displayRegion, useRegions } from '../map/geodata';
 
 interface MemoryCardProps {
   memory: Memory;
   onClick: () => void;
+  /** 지역 화면처럼 지역이 뻔할 때는 지역 표시를 빼요 */
+  hideRegion?: boolean;
 }
 
-export default function MemoryCard({ memory, onClick }: MemoryCardProps) {
-  const timeDisplay = formatTimeDisplay(memory);
+/** 타임라인과 지역 시트의 추억 한 줄 */
+export default function MemoryCard({ memory, onClick, hideRegion }: MemoryCardProps) {
+  const regions = useRegions();
+  const thumb = usePhotoURL(memory.photoIds[0]);
+  const time = formatTimeDisplay(memory);
+  const region = hideRegion ? null : displayRegion(memory.regionCode, memory.regionLabel, regions);
 
   return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'block', width: '100%', textAlign: 'left',
-        background: 'var(--color-bg)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
-        padding: '14px',
-        cursor: 'pointer',
-        transition: 'box-shadow 0.15s',
-      }}
-    >
-      {/* Top row: region + date */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-        {memory.regionLabel && (
-          <span style={{ fontSize: '12px', color: 'var(--color-primary)', fontWeight: 500, flex: 1 }}>
-            {memory.regionLabel}
-          </span>
-        )}
-        {timeDisplay && (
-          <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', flexShrink: 0, marginLeft: '8px' }}>
-            {timeDisplay}
-          </span>
-        )}
-      </div>
-
-      {/* Title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-        <span style={{ fontWeight: 700, fontSize: '15px', color: 'var(--color-text-primary)', flex: 1 }}>
-          {memory.title}
-        </span>
-        {memory.isFirst && (
-          <span style={{
-            fontSize: '11px', fontWeight: 600,
-            background: '#FFF3E0', color: 'var(--color-accent)',
-            padding: '2px 7px', borderRadius: '10px', flexShrink: 0,
-          }}>
-            첫 경험
-          </span>
-        )}
-      </div>
-
-      {/* Emotions + Song row */}
-      {(memory.emotions.length > 0 || memory.song) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          {memory.emotions.length > 0 && (
-            <span style={{ fontSize: '15px', letterSpacing: '1px' }}>
-              {memory.emotions.join('')}
-            </span>
-          )}
-          {memory.song && (
-            <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              ♪ {memory.song.artist} · {memory.song.title}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Photo + Memo row */}
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-        {memory.photos.length > 0 && (
-          <img
-            src={memory.photos[0]}
-            alt="사진"
-            style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', flexShrink: 0 }}
-          />
-        )}
-        {memory.memo && (
-          <p style={{
-            fontSize: '13px', color: 'var(--color-text-secondary)',
-            overflow: 'hidden', display: '-webkit-box',
-            WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-            lineHeight: 1.5,
-          }}>
-            {memory.memo}
+    <button type="button" className="entry" onClick={onClick}>
+      <div className="entry__main">
+        {memory.isFirst && <span className="entry__first">첫 경험</span>}
+        <p className="entry__title">{memory.title}</p>
+        {(region || time || memory.emotions.length > 0) && (
+          <p className="entry__meta">
+            {region && <span>{region}</span>}
+            {time && <span>{time}</span>}
+            {memory.emotions.length > 0 && <span aria-label="감정">{memory.emotions.join('')}</span>}
           </p>
         )}
+        {memory.memo && <p className="entry__memo">{memory.memo}</p>}
       </div>
+      {memory.photoIds.length > 0 && (
+        thumb ? <img className="entry__thumb" src={thumb} alt="" /> : <span className="entry__thumb" />
+      )}
     </button>
   );
 }

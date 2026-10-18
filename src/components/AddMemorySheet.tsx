@@ -1,655 +1,362 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../AppContext';
-import { saveMemory, getMemory } from '../db/index'
-import type { Memory } from '../db/index';
+import type { SheetPrefill } from '../AppContext';
+import { getMemory, MAX_PHOTOS, newId, saveMemory } from '../db/index';
+import type { Memory, Season, SchoolType, TimeType, TimeValue } from '../db/index';
 import { computeYear } from '../utils/timeUtils';
-import { fileToBase64 } from '../utils/photoUtils';
+import { EMOTIONS } from '../utils/emotions';
+import { compressImage, forgetPhotoURL, registerPhotoURL, usePhotoURL } from '../utils/photoUtils';
+import Sheet from './Sheet';
 import RegionPicker from './RegionPicker';
-
-type TimeType = Memory['timeType'];
-type Season = 'spring' | 'summer' | 'autumn' | 'winter';
-type SchoolType = 'elementary' | 'middle' | 'high';
-
-const EMOTIONS: { emoji: string; label: string }[] = [
-  { emoji: '😊', label: '행복' },
-  { emoji: '😢', label: '슬픔' },
-  { emoji: '🥰', label: '설렘' },
-  { emoji: '🤩', label: '신남' },
-  { emoji: '😌', label: '평온' },
-  { emoji: '😔', label: '우울' },
-  { emoji: '😨', label: '두려움' },
-  { emoji: '😤', label: '화남' },
-  { emoji: '😂', label: '웃김' },
-  { emoji: '🌅', label: '감동' },
-];
+import ConfirmDialog from './ConfirmDialog';
+import { IconChevron, IconClose, IconPlus } from './icons';
 
 const TIME_TYPES: { id: TimeType; label: string }[] = [
   { id: 'date', label: '날짜' },
-  { id: 'month', label: '월' },
-  { id: 'year', label: '연도' },
+  { id: 'month', label: '달' },
+  { id: 'year', label: '해' },
   { id: 'season', label: '계절' },
   { id: 'age', label: '나이' },
   { id: 'grade', label: '학년' },
-  { id: 'free', label: '기억 속' },
+  { id: 'free', label: '말로 적기' },
 ];
 
-const SEASON_OPTIONS: { id: Season; label: string }[] = [
-  { id: 'spring', label: '봄' },
-  { id: 'summer', label: '여름' },
-  { id: 'autumn', label: '가을' },
-  { id: 'winter', label: '겨울' },
+const SEASONS: { id: Season; label: string }[] = [
+  { id: 'spring', label: '봄' }, { id: 'summer', label: '여름' }, { id: 'autumn', label: '가을' }, { id: 'winter', label: '겨울' },
 ];
 
-const SCHOOL_OPTIONS: { id: SchoolType; label: string }[] = [
-  { id: 'elementary', label: '초등학교' },
-  { id: 'middle', label: '중학교' },
-  { id: 'high', label: '고등학교' },
+const SCHOOLS: { id: SchoolType; label: string }[] = [
+  { id: 'elementary', label: '초등학교' }, { id: 'middle', label: '중학교' }, { id: 'high', label: '고등학교' },
 ];
 
-function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+type DraftPhoto = { id: string; blob?: Blob };
+
+const int = (s: string) => { const n = parseInt(s, 10); return Number.isFinite(n) ? n : undefined; };
+const inRange = (n: number | undefined, lo: number, hi: number) => (n !== undefined && n >= lo && n <= hi ? n : undefined);
+
+function PhotoTile({ id, onRemove }: { id: string; onRemove: () => void }) {
+  const url = usePhotoURL(id);
+  return (
+    <div className="photo-tile">
+      {url && <img src={url} alt="" />}
+      <button type="button" className="photo-tile__remove" onClick={onRemove} aria-label="사진 빼기"><IconClose /></button>
+    </div>
+  );
 }
 
-export default function AddMemorySheet() {
-  const { closeAddSheet, addSheetEditId, refreshMemories, birthYear } = useApp();
+export default function AddMemorySheet({ editId, prefill }: { editId: string | null; prefill?: SheetPrefill }) {
+  const { closeSheet, refreshMemories, birthYear, showToast } = useApp();
+  const isEdit = !!editId;
+  const thisYear = new Date().getFullYear();
 
-  // Form state
+  const [loaded, setLoaded] = useState<Memory | null>(null);
   const [title, setTitle] = useState('');
-  const [regionCode, setRegionCode] = useState<string | null>(null);
-  const [regionLabel, setRegionLabel] = useState<string | null>(null);
-  const [timeType, setTimeType] = useState<TimeType>(null);
-  const [timeYear, setTimeYear] = useState('');
-  const [timeMonth, setTimeMonth] = useState('');
-  const [timeDay, setTimeDay] = useState('');
-  const [timeSeason, setTimeSeason] = useState<Season | null>(null);
-  const [timeAge, setTimeAge] = useState('');
-  const [schoolType, setSchoolType] = useState<SchoolType>('elementary');
-  const [schoolGrade, setSchoolGrade] = useState('1');
-  const [timeFree, setTimeFree] = useState('');
+  const [regionCode, setRegionCode] = useState<string | null>(prefill?.regionCode ?? null);
+  const [regionLabel, setRegionLabel] = useState<string | null>(prefill?.regionLabel ?? null);
+  const [timeType, setTimeType] = useState<TimeType | null>(null);
+  const [year, setYear] = useState('');
+  const [month, setMonth] = useState('');
+  const [day, setDay] = useState('');
+  const [season, setSeason] = useState<Season | null>(null);
+  const [age, setAge] = useState('');
+  const [school, setSchool] = useState<SchoolType>('elementary');
+  const [grade, setGrade] = useState('1');
+  const [freeText, setFreeText] = useState('');
   const [emotions, setEmotions] = useState<string[]>([]);
-  const [songArtist, setSongArtist] = useState('');
+  const [artist, setArtist] = useState('');
   const [songTitle, setSongTitle] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<DraftPhoto[]>([]);
   const [memo, setMemo] = useState('');
   const [isFirst, setIsFirst] = useState(false);
-  const [showRegionPicker, setShowRegionPicker] = useState(false);
+
+  const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const [emotionTooltip, setEmotionTooltip] = useState<string | null>(null);
-  const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  // Drag to dismiss
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const dragStartY = useRef<number | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const isEdit = !!addSheetEditId;
-
-  // Load existing memory in edit mode
   useEffect(() => {
-    if (!addSheetEditId) return;
-    getMemory(addSheetEditId).then(m => {
-      if (!m) return;
+    if (!editId) return;
+    getMemory(editId).then(m => {
+      if (!m) { showToast('이 추억을 찾지 못했어요.'); closeSheet(); return; }
+      setLoaded(m);
       setTitle(m.title);
       setRegionCode(m.regionCode);
       setRegionLabel(m.regionLabel);
       setTimeType(m.timeType);
-      if (m.timeValue) {
-        if (m.timeValue.year) setTimeYear(m.timeValue.year.toString());
-        if (m.timeValue.month) setTimeMonth(m.timeValue.month.toString());
-        if (m.timeValue.day) setTimeDay(m.timeValue.day.toString());
-        if (m.timeValue.season) setTimeSeason(m.timeValue.season);
-        if (m.timeValue.age) setTimeAge(m.timeValue.age.toString());
-        if (m.timeValue.schoolType) setSchoolType(m.timeValue.schoolType);
-        if (m.timeValue.schoolGrade) setSchoolGrade(m.timeValue.schoolGrade.toString());
-        if (m.timeValue.freeText) setTimeFree(m.timeValue.freeText);
-      }
+      const v = m.timeValue ?? {};
+      setYear(v.year?.toString() ?? '');
+      setMonth(v.month?.toString() ?? '');
+      setDay(v.day?.toString() ?? '');
+      setSeason(v.season ?? null);
+      setAge(v.age?.toString() ?? '');
+      setSchool(v.schoolType ?? 'elementary');
+      setGrade(v.schoolGrade?.toString() ?? '1');
+      setFreeText(v.freeText ?? '');
       setEmotions(m.emotions);
-      setSongArtist(m.song?.artist ?? '');
+      setArtist(m.song?.artist ?? '');
       setSongTitle(m.song?.title ?? '');
-      setPhotos(m.photos);
+      setPhotos(m.photoIds.map(id => ({ id })));
       setMemo(m.memo ?? '');
       setIsFirst(m.isFirst);
     });
-  }, [addSheetEditId]);
+  }, [editId, closeSheet, showToast]);
 
-  function buildTimeValue(): Memory['timeValue'] {
+  // 입력이 바뀌면 닫기 전에 한 번 물어봐요
+  const touch = <T,>(set: (v: T) => void) => (v: T) => { set(v); setDirty(true); };
+
+  function buildTimeValue(): TimeValue | null {
+    const y = inRange(int(year), 1900, thisYear + 1);
+    const mo = inRange(int(month), 1, 12);
+    const d = inRange(int(day), 1, 31);
     switch (timeType) {
-      case 'date': return { year: parseInt(timeYear) || undefined, month: parseInt(timeMonth) || undefined, day: parseInt(timeDay) || undefined };
-      case 'month': return { year: parseInt(timeYear) || undefined, month: parseInt(timeMonth) || undefined };
-      case 'year': return { year: parseInt(timeYear) || undefined };
-      case 'season': return { year: parseInt(timeYear) || undefined, season: timeSeason ?? undefined };
-      case 'age': return { age: parseInt(timeAge) || undefined };
-      case 'grade': return { schoolType, schoolGrade: parseInt(schoolGrade) || 1 };
-      case 'free': return { freeText: timeFree };
+      case 'date': return { year: y, month: mo, day: d };
+      case 'month': return { year: y, month: mo };
+      case 'year': return { year: y };
+      case 'season': return { year: y, season: season ?? undefined };
+      case 'age': return { age: inRange(int(age), 1, 130) };
+      case 'grade': return { schoolType: school, schoolGrade: inRange(int(grade), 1, 6) ?? 1 };
+      case 'free': return { freeText: freeText.trim() };
       default: return null;
     }
   }
 
   async function handleSave() {
-    if (!title.trim()) return;
+    if (!title.trim() || saving) return;
     setSaving(true);
     try {
       const tv = buildTimeValue();
-      const cy = computeYear(timeType, tv, birthYear);
       const now = Date.now();
+      const id = editId ?? newId();
       const memory: Memory = {
-        id: addSheetEditId ?? generateUUID(),
+        id,
         title: title.trim(),
         regionCode, regionLabel,
-        timeType, timeValue: tv,
-        computedYear: cy,
+        timeType: tv ? timeType : null,
+        timeValue: tv,
+        computedYear: computeYear(timeType, tv, birthYear),
         emotions,
-        song: (songArtist || songTitle) ? { artist: songArtist.trim(), title: songTitle.trim() } : null,
-        photos, memo: memo.trim() || null,
-        isFirst, isPublic: false,
-        createdAt: now, // overwritten below in edit mode
+        song: artist.trim() || songTitle.trim() ? { artist: artist.trim(), title: songTitle.trim() } : null,
+        photoIds: photos.map(p => p.id),
+        memo: memo.trim() || null,
+        isFirst,
+        isPublic: false,
+        createdAt: loaded?.createdAt ?? now,
         updatedAt: now,
       };
-      if (isEdit) {
-        const existing = await getMemory(addSheetEditId!);
-        if (!existing) {
-          showToast('기존 추억 정보를 불러오지 못했습니다. 다시 시도해주세요.');
-          return;
-        }
-        memory.createdAt = existing.createdAt;
-      } else {
-        memory.createdAt = now;
-      }
-      await saveMemory(memory);
+      const added = photos.filter(p => p.blob).map(p => ({ id: p.id, blob: p.blob! }));
+      const kept = new Set(memory.photoIds);
+      const removed = (loaded?.photoIds ?? []).filter(pid => !kept.has(pid));
+      await saveMemory(memory, added, removed);
+      removed.forEach(forgetPhotoURL);
       await refreshMemories();
-      closeAddSheet();
+      showToast(isEdit ? '고쳤어요.' : '기록했어요.');
+      closeSheet();
     } catch (e) {
       console.error(e);
-      showToast('저장에 실패했습니다. 다시 시도해주세요.');
+      const full = e instanceof DOMException && e.name === 'QuotaExceededError';
+      showToast(full
+        ? '저장 공간이 부족해서 저장하지 못했어요. 사진을 줄이거나 설정에서 백업 후 정리해 주세요.'
+        : '저장하지 못했어요. 입력한 내용은 그대로 있으니 다시 눌러 주세요.');
     } finally {
       setSaving(false);
     }
   }
 
-  async function handlePhotoAdd(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    const bases = await Promise.all(files.map(fileToBase64));
-    setPhotos(prev => [...prev, ...bases]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }
-
-  function toggleEmotion(emoji: string) {
-    setEmotions(prev => prev.includes(emoji) ? prev.filter(e => e !== emoji) : [...prev, emoji]);
-  }
-
-  const startEmotionTooltip = useCallback((label: string) => {
-    tooltipTimer.current = setTimeout(() => setEmotionTooltip(label), 500);
-  }, []);
-
-  const clearEmotionTooltip = useCallback(() => {
-    if (tooltipTimer.current) { clearTimeout(tooltipTimer.current); tooltipTimer.current = null; }
-    setEmotionTooltip(null);
-  }, []);
-
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  }
-
-  function handleTouchStart(e: React.TouchEvent) {
-    dragStartY.current = e.touches[0].clientY;
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    if (dragStartY.current === null) return;
-    const dy = e.touches[0].clientY - dragStartY.current;
-    if (dy > 0) setDragOffset(dy);
-  }
-
-  function handleTouchEnd() {
-    if (dragOffset > 100) {
-      closeAddSheet();
-    } else {
-      setDragOffset(0);
+    e.target.value = '';
+    const room = MAX_PHOTOS - photos.length;
+    if (files.length > room) showToast(`사진은 ${MAX_PHOTOS}장까지 붙일 수 있어서 앞의 ${room}장만 넣었어요.`);
+    const next: DraftPhoto[] = [];
+    for (const f of files.slice(0, Math.max(0, room))) {
+      const blob = await compressImage(f);
+      const id = newId();
+      registerPhotoURL(id, blob);
+      next.push({ id, blob });
     }
-    dragStartY.current = null;
+    if (next.length) { setPhotos(prev => [...prev, ...next].slice(0, MAX_PHOTOS)); setDirty(true); }
   }
 
-  const maxGrade = schoolType === 'elementary' ? 6 : 3;
+  const requestClose = useCallback(() => {
+    if (dirty) setConfirmDiscard(true);
+    else closeSheet();
+  }, [dirty, closeSheet]);
+
+  const needsBirth = (timeType === 'age' || timeType === 'grade') && !birthYear;
+  const tv = buildTimeValue();
+  const preview = timeType === 'age' || timeType === 'grade' ? computeYear(timeType, tv, birthYear) : null;
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.5)', animation: 'fadeIn 0.2s ease' }}
-        onClick={closeAddSheet}
-      />
-
-      {/* Sheet */}
-      <div
-        ref={sheetRef}
-        className="modal-container"
-        style={{
-          position: 'fixed', bottom: 0, left: '50%', transform: `translateX(-50%) translateY(${dragOffset}px)`,
-          width: '100%', maxWidth: '480px',
-          height: '85dvh',
-          background: 'var(--color-bg)',
-          borderTopLeftRadius: 'var(--radius-lg)',
-          borderTopRightRadius: 'var(--radius-lg)',
-          display: 'flex', flexDirection: 'column',
-          zIndex: 50,
-          animation: dragOffset > 0 ? 'none' : 'slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
-          transition: dragOffset > 0 ? 'none' : 'transform 0.2s ease',
-          boxShadow: 'var(--shadow-lg)',
-        }}
+      <Sheet
+        label={isEdit ? '추억 고치기' : '새 추억'}
+        size="tall"
+        onClose={requestClose}
+        left={<button type="button" className="text-btn text-btn--muted" onClick={requestClose}>취소</button>}
+        title={isEdit ? '추억 고치기' : '새 추억'}
+        right={
+          <button type="button" className="text-btn" onClick={handleSave} disabled={!title.trim() || saving}>
+            {saving ? '저장 중' : '저장'}
+          </button>
+        }
       >
-        {/* Drag handle */}
-        <div
-          style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px', flexShrink: 0, cursor: 'grab' }}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-          <div style={{ width: '36px', height: '4px', background: 'var(--color-border)', borderRadius: '2px' }} />
-        </div>
+        <div className="sheet__body">
+          <label className="visually-hidden" htmlFor="memory-title">제목</label>
+          <input
+            id="memory-title"
+            className="title-input"
+            value={title}
+            onChange={e => touch(setTitle)(e.target.value)}
+            placeholder="어떤 순간이었나요"
+            maxLength={80}
+            autoFocus={!isEdit}
+            enterKeyHint="done"
+          />
 
-        {/* Header */}
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '4px 16px 12px', flexShrink: 0,
-          borderBottom: '1px solid var(--color-border)',
-        }}>
-          <h2 style={{ fontSize: '17px', fontWeight: 700 }}>
-            {isEdit ? '추억 수정' : '새 추억 추가'}
-          </h2>
-          <button onClick={closeAddSheet} style={{ fontSize: '20px', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>×</button>
-        </div>
-
-        {/* Scrollable form */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-          {/* 제목 */}
-          <FormField label="제목" required>
-            <input
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="오늘의 추억 한 줄로..."
-              style={inputStyle(!!title)}
-            />
-          </FormField>
-
-          {/* 지역 */}
-          <FormField label="지역">
-            <button
-              onClick={() => setShowRegionPicker(true)}
-              style={{
-                ...inputStyle(!!regionLabel),
-                textAlign: 'left', cursor: 'pointer', display: 'block', width: '100%',
-                color: regionLabel ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-              }}
-            >
-              {regionLabel ?? '시/군/구 선택'}
+          <div className="field">
+            <span className="field__label">어디서</span>
+            <button type="button" className="pick" onClick={() => setPicking(true)}>
+              {regionLabel ? <span>{regionLabel}</span> : <span className="pick__placeholder">시군구 고르기</span>}
+              <IconChevron />
             </button>
             {regionLabel && (
-              <button
-                onClick={() => { setRegionCode(null); setRegionLabel(null); }}
-                style={{ marginTop: '4px', fontSize: '12px', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
-              >
-                ✕ 지역 초기화
+              <button type="button" className="text-btn text-btn--muted" style={{ paddingLeft: 0 }}
+                onClick={() => { setRegionCode(null); setRegionLabel(null); setDirty(true); }}>
+                장소 비우기
               </button>
             )}
-          </FormField>
+          </div>
 
-          {/* 시간 */}
-          <FormField label="시간">
-            {/* Type selector - horizontally scrollable */}
-            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '10px', paddingBottom: '2px' }}>
-              {TIME_TYPES.map(tt => (
-                <button
-                  key={tt.id ?? 'null'}
-                  onClick={() => setTimeType(tt.id)}
-                  style={{
-                    padding: '6px 12px', borderRadius: '16px', fontSize: '13px',
-                    whiteSpace: 'nowrap', flexShrink: 0, cursor: 'pointer',
-                    background: timeType === tt.id ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
-                    color: timeType === tt.id ? 'white' : 'var(--color-text-secondary)',
-                    border: `1px solid ${timeType === tt.id ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {tt.label}
+          <div className="field">
+            <span className="field__label">언제</span>
+            <div className="segmented" role="group" aria-label="시간을 적는 방식">
+              {TIME_TYPES.map(t => (
+                <button key={t.id} type="button" className="chip" aria-pressed={timeType === t.id}
+                  onClick={() => touch(setTimeType)(timeType === t.id ? null : t.id)}>
+                  {t.label}
                 </button>
               ))}
             </div>
 
-            {/* Type-specific inputs */}
-            {timeType === 'date' && (
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <input type="number" value={timeYear} onChange={e => setTimeYear(e.target.value)} placeholder="연도" style={{ ...inputStyle(!!timeYear), flex: 2 }} />
-                <input type="number" value={timeMonth} onChange={e => setTimeMonth(e.target.value)} placeholder="월" min="1" max="12" style={{ ...inputStyle(!!timeMonth), flex: 1 }} />
-                <input type="number" value={timeDay} onChange={e => setTimeDay(e.target.value)} placeholder="일" min="1" max="31" style={{ ...inputStyle(!!timeDay), flex: 1 }} />
+            {(timeType === 'date' || timeType === 'month' || timeType === 'year' || timeType === 'season') && (
+              <div className="input-row">
+                <input className="input" style={{ flex: 2 }} inputMode="numeric" placeholder={`연도 (예: ${thisYear})`} aria-label="연도"
+                  value={year} onChange={e => touch(setYear)(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                {(timeType === 'date' || timeType === 'month') && (
+                  <input className="input" style={{ flex: 1 }} inputMode="numeric" placeholder="월" aria-label="월"
+                    value={month} onChange={e => touch(setMonth)(e.target.value.replace(/\D/g, '').slice(0, 2))} />
+                )}
+                {timeType === 'date' && (
+                  <input className="input" style={{ flex: 1 }} inputMode="numeric" placeholder="일" aria-label="일"
+                    value={day} onChange={e => touch(setDay)(e.target.value.replace(/\D/g, '').slice(0, 2))} />
+                )}
               </div>
-            )}
-            {timeType === 'month' && (
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <input type="number" value={timeYear} onChange={e => setTimeYear(e.target.value)} placeholder="연도" style={{ ...inputStyle(!!timeYear), flex: 2 }} />
-                <input type="number" value={timeMonth} onChange={e => setTimeMonth(e.target.value)} placeholder="월" min="1" max="12" style={{ ...inputStyle(!!timeMonth), flex: 1 }} />
-              </div>
-            )}
-            {timeType === 'year' && (
-              <input type="number" value={timeYear} onChange={e => setTimeYear(e.target.value)} placeholder="연도" style={inputStyle(!!timeYear)} />
             )}
             {timeType === 'season' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <input type="number" value={timeYear} onChange={e => setTimeYear(e.target.value)} placeholder="연도" style={inputStyle(!!timeYear)} />
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {SEASON_OPTIONS.map(s => (
-                    <button key={s.id} onClick={() => setTimeSeason(s.id)} style={{
-                      flex: 1, padding: '8px 0', borderRadius: 'var(--radius-sm)', fontSize: '14px', cursor: 'pointer',
-                      background: timeSeason === s.id ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
-                      color: timeSeason === s.id ? 'white' : 'var(--color-text-primary)',
-                      border: `1px solid ${timeSeason === s.id ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                      fontWeight: timeSeason === s.id ? 600 : 400, transition: 'all 0.15s',
-                    }}>{s.label}</button>
-                  ))}
-                </div>
+              <div className="segmented" style={{ marginTop: 8, marginBottom: 0 }} role="group" aria-label="계절">
+                {SEASONS.map(s => (
+                  <button key={s.id} type="button" className="chip" aria-pressed={season === s.id}
+                    onClick={() => touch(setSeason)(s.id)}>{s.label}</button>
+                ))}
               </div>
             )}
             {timeType === 'age' && (
-              <div>
-                {!birthYear && (
-                  <p style={{ fontSize: '12px', color: 'var(--color-destructive)', marginBottom: '6px' }}>
-                    설정에서 출생연도를 먼저 입력해주세요
-                  </p>
-                )}
-                <input
-                  type="number"
-                  value={timeAge}
-                  onChange={e => setTimeAge(e.target.value)}
-                  placeholder="나이 (세는 나이)"
-                  disabled={!birthYear}
-                  style={{ ...inputStyle(!!timeAge), opacity: birthYear ? 1 : 0.5 }}
-                />
-                {birthYear && timeAge && !isNaN(parseInt(timeAge)) && (
-                  <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                    → {birthYear + parseInt(timeAge) - 1}년
-                  </p>
-                )}
-              </div>
+              <input className="input" inputMode="numeric" placeholder="몇 살 때 (세는 나이)" aria-label="나이" disabled={!birthYear}
+                value={age} onChange={e => touch(setAge)(e.target.value.replace(/\D/g, '').slice(0, 3))} />
             )}
             {timeType === 'grade' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {!birthYear && (
-                  <p style={{ fontSize: '12px', color: 'var(--color-destructive)' }}>
-                    설정에서 출생연도를 먼저 입력해주세요
-                  </p>
-                )}
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {SCHOOL_OPTIONS.map(s => (
-                    <button key={s.id} onClick={() => { setSchoolType(s.id); setSchoolGrade('1'); }} style={{
-                      flex: 1, padding: '8px 0', borderRadius: 'var(--radius-sm)', fontSize: '13px', cursor: 'pointer',
-                      background: schoolType === s.id ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
-                      color: schoolType === s.id ? 'white' : 'var(--color-text-primary)',
-                      border: `1px solid ${schoolType === s.id ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                      fontWeight: schoolType === s.id ? 600 : 400, transition: 'all 0.15s',
-                    }}>{s.label}</button>
-                  ))}
-                </div>
-                <select
-                  value={schoolGrade}
-                  onChange={e => setSchoolGrade(e.target.value)}
-                  disabled={!birthYear}
-                  style={{ ...inputStyle(true), opacity: birthYear ? 1 : 0.5 }}
-                >
-                  {Array.from({ length: maxGrade }, (_, i) => i + 1).map(g => (
+              <div className="input-row">
+                <select className="input" style={{ flex: 2 }} aria-label="학교" disabled={!birthYear}
+                  value={school} onChange={e => { touch(setSchool)(e.target.value as SchoolType); setGrade('1'); }}>
+                  {SCHOOLS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+                <select className="input" style={{ flex: 1 }} aria-label="학년" disabled={!birthYear}
+                  value={grade} onChange={e => touch(setGrade)(e.target.value)}>
+                  {Array.from({ length: school === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => (
                     <option key={g} value={g}>{g}학년</option>
                   ))}
                 </select>
               </div>
             )}
             {timeType === 'free' && (
-              <input
-                type="text"
-                value={timeFree}
-                onChange={e => setTimeFree(e.target.value)}
-                placeholder="어릴 때 자주, 군대 가기 전..."
-                style={inputStyle(!!timeFree)}
-              />
+              <input className="input" placeholder="어릴 때 여름마다, 입대 전날 밤" aria-label="시간을 말로"
+                value={freeText} onChange={e => touch(setFreeText)(e.target.value)} maxLength={40} />
             )}
-          </FormField>
+            {needsBirth && <p className="field__hint field__hint--warn">설정에서 태어난 해를 먼저 적어 주세요. 그래야 몇 년도인지 계산할 수 있어요.</p>}
+            {preview && <p className="field__hint">{preview}년으로 쌓여요.</p>}
+          </div>
 
-          {/* 감정 */}
-          <FormField label="감정 태그">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {EMOTIONS.map(({ emoji, label }) => {
-                const selected = emotions.includes(emoji);
-                return (
-                  <button
-                    key={emoji}
-                    onClick={() => toggleEmotion(emoji)}
-                    onPointerDown={() => startEmotionTooltip(label)}
-                    onPointerUp={clearEmotionTooltip}
-                    onPointerLeave={clearEmotionTooltip}
-                    style={{
-                      width: '44px', height: '44px', fontSize: '22px',
-                      borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                      background: selected ? 'var(--color-primary-light)' : 'var(--color-bg-secondary)',
-                      border: `2px solid ${selected ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                      transition: 'all 0.15s',
-                      position: 'relative',
-                    }}
-                  >
-                    {emoji}
-                    {emotionTooltip === label && (
-                      <span style={{
-                        position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
-                        transform: 'translateX(-50%)',
-                        background: 'rgba(0,0,0,0.8)', color: 'white',
-                        padding: '3px 8px', borderRadius: '6px', fontSize: '11px',
-                        whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10,
-                      }}>
-                        {label}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </FormField>
-
-          {/* 연결 노래 */}
-          <FormField label="연결 노래">
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                value={songArtist}
-                onChange={e => setSongArtist(e.target.value)}
-                placeholder="아티스트"
-                style={{ ...inputStyle(!!songArtist), flex: 1 }}
-              />
-              <input
-                type="text"
-                value={songTitle}
-                onChange={e => setSongTitle(e.target.value)}
-                placeholder="곡 제목"
-                style={{ ...inputStyle(!!songTitle), flex: 1 }}
-              />
-            </div>
-          </FormField>
-
-          {/* 사진 */}
-          <FormField label="사진">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handlePhotoAdd}
-              style={{ display: 'none' }}
-            />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {photos.map((photo, i) => (
-                <div key={i} style={{
-                  width: 'calc((100% - 16px) / 3)', aspectRatio: '1 / 1',
-                  position: 'relative', borderRadius: 'var(--radius-sm)', overflow: 'hidden',
-                  flexShrink: 0,
-                }}>
-                  <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                  <button
-                    onClick={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))}
-                    style={{
-                      position: 'absolute', top: '4px', right: '4px',
-                      width: '22px', height: '22px', borderRadius: '50%',
-                      background: 'rgba(0,0,0,0.6)', color: 'white',
-                      fontSize: '13px', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}
-                    aria-label="사진 삭제"
-                  >×</button>
-                </div>
+          <div className="field">
+            <span className="field__label">그때 기분</span>
+            <div className="emotions">
+              {EMOTIONS.map(({ emoji, label }) => (
+                <button key={emoji} type="button" className="emotion" aria-pressed={emotions.includes(emoji)}
+                  onClick={() => touch(setEmotions)(emotions.includes(emoji) ? emotions.filter(x => x !== emoji) : [...emotions, emoji])}>
+                  <span className="emotion__emoji" aria-hidden="true">{emoji}</span>
+                  {label}
+                </button>
               ))}
-              {photos.length < 5 && (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    width: 'calc((100% - 16px) / 3)', aspectRatio: '1 / 1',
-                    border: '1.5px dashed var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'var(--color-bg-secondary)',
-                    display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer', color: 'var(--color-text-secondary)',
-                    flexShrink: 0,
-                  }}
-                >
-                  <span style={{ fontSize: '22px', lineHeight: 1 }}>📷</span>
-                  <span style={{ fontSize: '11px', marginTop: '5px' }}>추가</span>
+            </div>
+          </div>
+
+          <div className="field">
+            <span className="field__label">함께 떠오르는 노래</span>
+            <div className="input-row">
+              <input className="input" placeholder="가수" aria-label="가수" value={artist} onChange={e => touch(setArtist)(e.target.value)} />
+              <input className="input" placeholder="곡 제목" aria-label="곡 제목" value={songTitle} onChange={e => touch(setSongTitle)(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="field">
+            <span className="field__label">사진 {photos.length > 0 && `${photos.length}/${MAX_PHOTOS}`}</span>
+            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={handleFiles} />
+            <div className="photos-grid">
+              {photos.map(p => (
+                <PhotoTile key={p.id} id={p.id} onRemove={() => { setPhotos(prev => prev.filter(x => x.id !== p.id)); setDirty(true); }} />
+              ))}
+              {photos.length < MAX_PHOTOS && (
+                <button type="button" className="photo-add" onClick={() => fileRef.current?.click()} aria-label="사진 붙이기">
+                  <IconPlus />
                 </button>
               )}
             </div>
-          </FormField>
-
-          {/* 메모 */}
-          <FormField label="메모">
-            <textarea
-              value={memo}
-              onChange={e => setMemo(e.target.value)}
-              placeholder="자유롭게 기록해요..."
-              rows={3}
-              style={{
-                ...inputStyle(!!memo),
-                resize: 'vertical',
-                minHeight: '80px',
-              }}
-            />
-          </FormField>
-
-          {/* 첫 경험 toggle */}
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '14px 0',
-            borderTop: '1px solid var(--color-border)',
-          }}>
-            <span style={{ fontSize: '15px', fontWeight: 500 }}>첫 경험이에요</span>
-            <button
-              onClick={() => setIsFirst(!isFirst)}
-              style={{
-                width: '48px', height: '26px',
-                borderRadius: '13px',
-                background: isFirst ? 'var(--color-primary)' : 'var(--color-border)',
-                position: 'relative', cursor: 'pointer',
-                transition: 'background 0.2s',
-                border: 'none',
-              }}
-              role="switch"
-              aria-checked={isFirst}
-            >
-              <span style={{
-                position: 'absolute',
-                top: '3px', left: isFirst ? '25px' : '3px',
-                width: '20px', height: '20px',
-                borderRadius: '50%', background: 'white',
-                transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-              }} />
-            </button>
           </div>
 
-          {/* Bottom padding */}
-          <div style={{ height: '16px' }} />
-        </div>
+          <div className="field">
+            <label className="field__label" htmlFor="memory-memo">적어 두고 싶은 것</label>
+            <textarea id="memory-memo" className="input" rows={4} value={memo} onChange={e => touch(setMemo)(e.target.value)} />
+          </div>
 
-        {/* Save button */}
-        <div style={{
-          padding: '12px 16px',
-          borderTop: '1px solid var(--color-border)',
-          flexShrink: 0,
-          background: 'var(--color-bg)',
-        }}>
-          <button
-            onClick={handleSave}
-            disabled={!title.trim() || saving}
-            style={{
-              width: '100%', padding: '15px',
-              background: title.trim() && !saving ? 'var(--color-primary)' : 'var(--color-border)',
-              color: title.trim() && !saving ? 'white' : 'var(--color-text-secondary)',
-              borderRadius: 'var(--radius-md)', fontSize: '16px', fontWeight: 700,
-              cursor: title.trim() && !saving ? 'pointer' : 'not-allowed',
-              transition: 'all 0.2s',
-            }}
-          >
-            {saving ? '저장 중...' : '저장하기'}
-          </button>
+          <div className="switch-row">
+            <span className="switch-row__text" id="first-label">
+              처음 해 본 일
+              <small>타임라인에서 따로 모아 볼 수 있어요</small>
+            </span>
+            <button type="button" role="switch" className="switch" aria-checked={isFirst} aria-labelledby="first-label"
+              onClick={() => touch(setIsFirst)(!isFirst)} />
+          </div>
         </div>
-      </div>
+      </Sheet>
 
-      {/* Toast */}
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: '100px', left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(0,0,0,0.8)', color: 'white',
-          padding: '10px 18px', borderRadius: 'var(--radius-md)',
-          fontSize: '14px', zIndex: 200,
-          animation: 'fadeIn 0.2s ease',
-        }}>
-          {toast}
-        </div>
-      )}
-
-      {/* Region Picker */}
-      {showRegionPicker && (
+      {picking && (
         <RegionPicker
           currentCode={regionCode}
-          onSelect={(code, label) => { setRegionCode(code); setRegionLabel(label); }}
-          onClose={() => setShowRegionPicker(false)}
+          onSelect={(code, label) => { setRegionCode(code); setRegionLabel(label); setDirty(true); }}
+          onClose={() => setPicking(false)}
+        />
+      )}
+
+      {confirmDiscard && (
+        <ConfirmDialog
+          message="적던 내용을 버릴까요?"
+          subMessage="저장하지 않은 내용은 사라져요."
+          confirmLabel="버리기"
+          destructive
+          onCancel={() => setConfirmDiscard(false)}
+          onConfirm={() => { photos.filter(p => p.blob).forEach(p => forgetPhotoURL(p.id)); closeSheet(); }}
         />
       )}
     </>
   );
-}
-
-function FormField({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: '18px' }}>
-      <label style={{
-        display: 'block', fontSize: '14px', fontWeight: 600,
-        color: 'var(--color-text-secondary)', marginBottom: '6px',
-      }}>
-        {label}
-        {required && <span style={{ color: 'var(--color-destructive)', marginLeft: '3px' }}>*</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function inputStyle(filled: boolean): React.CSSProperties {
-  return {
-    width: '100%', padding: '10px 12px',
-    border: `2px solid ${filled ? 'var(--color-primary)' : 'var(--color-border)'}`,
-    borderRadius: 'var(--radius-sm)', fontSize: '15px',
-    background: 'var(--color-bg)', outline: 'none',
-    transition: 'border-color 0.2s',
-    color: 'var(--color-text-primary)',
-  };
 }

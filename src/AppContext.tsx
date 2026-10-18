@@ -2,10 +2,6 @@ import { createContext, useContext } from 'react';
 import type { Memory } from './db/index';
 import type { Theme } from './theme/index';
 
-// ============================================================
-// Routing Types
-// ============================================================
-
 export type Tab = 'map' | 'timeline' | 'settings';
 
 export type Route =
@@ -13,9 +9,10 @@ export type Route =
   | { type: 'main'; tab: Tab }
   | { type: 'detail'; memoryId: string };
 
-// ============================================================
-// App Context
-// ============================================================
+export interface SheetPrefill {
+  regionCode: string;
+  regionLabel: string;
+}
 
 export interface AppContextValue {
   memories: Memory[];
@@ -24,13 +21,15 @@ export interface AppContextValue {
   setBirthYear: (year: number) => Promise<void>;
   theme: Theme;
   setTheme: (theme: Theme) => Promise<void>;
-  navigate: (route: Route) => void;
   route: Route;
-  openAddSheet: () => void;
-  closeAddSheet: () => void;
-  addSheetOpen: boolean;
-  addSheetEditId: string | null;
+  /** 주소(#/...)를 바꿔 이동해요. 브라우저 뒤로 가기가 그대로 동작해요. */
+  navigate: (route: Route, opts?: { replace?: boolean }) => void;
+  /** 앱 안에서 온 화면이면 이전 화면으로, 아니면 fallback으로 */
+  goBack: (fallback: Route) => void;
+  openAddSheet: (prefill?: SheetPrefill) => void;
   openEditSheet: (id: string) => void;
+  closeSheet: () => void;
+  showToast: (message: string) => void;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

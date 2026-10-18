@@ -1,5 +1,6 @@
 name: Deploy to GitHub Pages
 
+# main에 올라오면 빌드해서 docs/에 커밋해요 (Pages는 main 브랜치의 /docs를 보여줘요).
 on:
   push:
     branches:
@@ -8,30 +9,29 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
+          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
 
       - name: Commit docs to main
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/
+          git add -A docs/
           git diff --staged --quiet || git commit -m "chore: auto-build [skip ci]"
           git push
