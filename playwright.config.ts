@@ -24,5 +24,5 @@ export default defineConfig({
     port: 4173,
     reuseExistingServer: !process.env.CI,
   },
-  outputDir: '/workspace/work/kyeokyeoi-test-results',
+  outputDir: 'work/test-results',
 });

@@ -51,7 +51,7 @@
 | 기본 UI | `src/components/BottomTabBar.tsx`, `src/components/Sheet.tsx`, `src/components/icons.tsx`, `src/views/OnboardingFlow.tsx`, `src/views/SettingsTab.tsx`, `src/index.css` |
 | 연동 계약 | `src/integration/contracts.ts`, `docs/LIFEHUB_INTEGRATION.md` |
 | 테스트 | `tests/setup.ts`, `tests/storage.test.ts`, `tests/e2e/archive.spec.ts`, `vitest.config.ts`, `playwright.config.ts` |
-| 빌드·배포 | `package.json`, `package-lock.json`, `vite.config.ts`, `.github/workflows/check.yml`, `.github/workflows/deploy.yml`, `scripts/copy-site.mjs` |
+| 빌드·배포 | `package.json`, `package-lock.json`, `.gitignore`, `vite.config.ts`, `.github/workflows/check.yml`, `.github/workflows/deploy.yml`, `scripts/copy-site.mjs` |
 | 문서·복구 | `README.md`, `public/recovery.html`, `docs/DATA_RECOVERY.md`, 이 보고서 |
 
 `public/regions.json`의 경계와 코드는 변경하지 않았다. Achievement 저장소도 변경하지 않았다. 배포 산출물은 PR에 넣지 않고 main 배포 워크플로에서 생성한다.
@@ -96,7 +96,7 @@ v2 DB의 원래 기억 ID·본문·사진 바이트·이전 지역 코드·시�
 
 ## 8. PR과 병합 순서
 
-단일 검토용 PR로 제출한다. 여러 PR 간 병합 순서는 없으며 다음 커밋 순서로 검토하면 된다.
+[PR #4](https://github.com/KINGJNU-sakayume/kyeokyeoi/pull/4)에 단일 검토용 PR로 제출했다. 여러 PR 간 병합 순서는 없으며 다음 커밋 순서로 검토하면 된다.
 
 1. `c6f7712`: 백업·복원·기존 데이터 테스트 안정화.
 2. `9c2c1a4`: 독립 방문·컬렉션·시기 저장소와 PWA 기반.
