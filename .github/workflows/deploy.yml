@@ -29,6 +29,9 @@ jobs:
       - run: npm run lint
       - run: npm run build
 
+      - name: Copy generated site (preserve documentation)
+        run: node scripts/copy-site.mjs
+
       - name: Commit docs to main
         run: |
           git config user.name "github-actions[bot]"

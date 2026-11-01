@@ -1,15 +1,15 @@
 import { openDB } from 'idb';
 import type { IDBPDatabase } from 'idb';
-import type { Memory, PhotoRecord, SettingKey } from './model';
+import type { Memory, PhotoRecord, SettingKey, RegionVisit, MemoryCollection, LifePeriod } from './model';
 import { decodePhoto, encodePhoto, mergeBackup, serializeBackup } from './backup';
 export * from './model';
 export type { BackupFile, ImportReport } from './backup';
 
 export const DB_NAME = 'kkyeokyeoi-db';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const MAX_PHOTOS = 5;
-export const DATA_STORES = ['memories', 'photos', 'settings'] as const;
-export type Snapshot = { memories: Memory[]; photos: PhotoRecord[]; settings: Record<string, unknown> };
+export const DATA_STORES = ['memories', 'photos', 'settings', 'regionVisits', 'collections', 'lifePeriods'] as const;
+export type Snapshot = { memories: Memory[]; photos: PhotoRecord[]; settings: Record<string, unknown>; regionVisits: RegionVisit[]; collections: MemoryCollection[]; lifePeriods: LifePeriod[] };
 
 export function newId(): string { return crypto.randomUUID(); }
 export const dataURLToBlob = decodePhoto;
@@ -56,6 +56,12 @@ export function createRepository(name: string) {
             }
           }
         }
+        if (oldVersion < 3) {
+          const visits = db.createObjectStore('regionVisits', { keyPath: 'regionCode' });
+          visits.createIndex('by-id', 'id', { unique: true });
+          db.createObjectStore('collections', { keyPath: 'id' });
+          db.createObjectStore('lifePeriods', { keyPath: 'id' });
+        }
         } catch { tx.abort(); }
       },
       blocked() { storageEvent('다른 탭이 저장소를 사용 중이에요. 켜켜이의 다른 탭을 닫으면 이어서 열립니다.'); },
@@ -71,7 +77,10 @@ export function createRepository(name: string) {
         if (e instanceof DOMException && e.name === 'VersionError') return openDB(name, undefined, options);
         throw e;
       })
-      .then(db => { connection = db; return db; })
+      .then(db => {
+        if (DATA_STORES.some(s => !db.objectStoreNames.contains(s))) { db.close(); throw new Error('저장소 구조가 호환되지 않아요. 데이터를 삭제하지 말고 백업 가능한 복구 버전으로 열어 주세요.'); }
+        connection = db; return db;
+      })
       .catch(e => { pending = null; throw e; });
     return pending;
   };
@@ -116,20 +125,39 @@ export function createRepository(name: string) {
     async getPhotoBlob(id: string): Promise<Blob | undefined> { return ((await getDb()).get('photos', id)).then(p => p?.blob); },
     async getSetting<T>(key: SettingKey): Promise<T | undefined> { return (await getDb()).get('settings', key); },
     async setSetting<T>(key: SettingKey, value: T) { await (await getDb()).put('settings', value, key); },
+    async getRegionVisits(): Promise<RegionVisit[]> { return (await getDb()).getAll('regionVisits'); },
+    async setRegionsVisited(regions: { code: string; label: string }[], visited: boolean, visitedOn: string | null = null) {
+      if (visitedOn && (!/^\d{4}-\d{2}-\d{2}$/.test(visitedOn) || Number.isNaN(Date.parse(visitedOn)))) throw new Error('방문 날짜를 확인해 주세요.');
+      const tx = (await getDb()).transaction('regionVisits', 'readwrite');
+      for (const r of regions) {
+        if (visited) {
+          const old = await tx.store.get(r.code);
+          if (!old) await tx.store.add({ id: newId(), regionCode: r.code, regionLabel: r.label, visitedOn, recordedAt: Date.now(), updatedAt: Date.now() } satisfies RegionVisit);
+        } else await tx.store.delete(r.code);
+      }
+      await tx.done;
+    },
+    async getCollections(): Promise<MemoryCollection[]> { return (await getDb()).getAll('collections'); },
+    async saveCollection(value: MemoryCollection) { await (await getDb()).put('collections', value); },
+    async deleteCollection(id: string) { await (await getDb()).delete('collections', id); },
+    async getLifePeriods(): Promise<LifePeriod[]> { return (await getDb()).getAll('lifePeriods'); },
+    async saveLifePeriod(value: LifePeriod) { await (await getDb()).put('lifePeriods', value); },
+    async deleteLifePeriod(id: string) { await (await getDb()).delete('lifePeriods', id); },
     async snapshot(): Promise<Snapshot> {
       const tx = (await getDb()).transaction([...DATA_STORES], 'readonly');
-      const [memories, photos, keys, values] = await Promise.all([
+      const [memories, photos, keys, values, regionVisits, collections, lifePeriods] = await Promise.all([
         tx.objectStore('memories').getAll(), tx.objectStore('photos').getAll(),
         tx.objectStore('settings').getAllKeys(), tx.objectStore('settings').getAll(),
+        tx.objectStore('regionVisits').getAll(), tx.objectStore('collections').getAll(), tx.objectStore('lifePeriods').getAll(),
       ]);
       await tx.done;
-      return { memories, photos, settings: Object.fromEntries(keys.map((k, i) => [String(k), values[i]])) };
+      return { memories, photos, regionVisits, collections, lifePeriods, settings: Object.fromEntries(keys.map((k, i) => [String(k), values[i]])) };
     },
   };
 }
 export type Repository = ReturnType<typeof createRepository>;
 export const repository = createRepository(DB_NAME);
-export const { getMemories, getMemory, saveMemory, updateMemories, deleteMemory, getPhotoBlob, getSetting, setSetting } = repository;
+export const { getMemories, getMemory, saveMemory, updateMemories, deleteMemory, getPhotoBlob, getSetting, setSetting, getRegionVisits, setRegionsVisited, getCollections, saveCollection, deleteCollection, getLifePeriods, saveLifePeriod, deleteLifePeriod } = repository;
 
 export async function estimateUsage(): Promise<{ usage: number; quota: number } | null> {
   try { const e = await navigator.storage?.estimate?.(); return e?.usage != null && e.quota != null ? { usage: e.usage, quota: e.quota } : null; }

@@ -68,3 +68,28 @@ describe('isolated local storage and backup', () => {
     const upgraded = await r.getMemory('v1'); expect(upgraded?.memo).toBe('원문 그대로'); expect(upgraded?.photoIds).toHaveLength(1); expect(await (await r.getPhotoBlob(upgraded!.photoIds[0]))?.text()).toBe('a');
   });
 });
+
+describe('independent visits and additional archive stores', () => {
+  it('does not infer visits from old memory codes; cancel and delete remain independent', async () => {
+    const r = isolated(); await r.saveMemory(memory('a', { regionCode: '11110' }));
+    expect(await r.getRegionVisits()).toEqual([]);
+    await r.setRegionsVisited([{ code: '11110', label: '서울 종로구' }, { code: '39010', label: '제주시' }], true);
+    await r.setRegionsVisited([{ code: '11110', label: '서울 종로구' }], true);
+    expect(await r.getRegionVisits()).toHaveLength(2); expect((await r.getRegionVisits())[0].visitedOn).toBeNull();
+    await r.setRegionsVisited([{ code: '11110', label: '서울 종로구' }], false); expect(await r.getMemory('a')).toBeDefined();
+    await r.deleteMemory('a'); expect(await r.getRegionVisits()).toHaveLength(1);
+  });
+  it('round-trips visits-only, overlapping collections and life periods without duplication', async () => {
+    const r = isolated(); await r.setRegionsVisited([{ code: '37430', label: '울릉군' }], true);
+    const c = { id: 'c', title: '여름들', memoryIds: [], createdAt: 1, updatedAt: 1 };
+    await r.saveCollection(c); await r.saveLifePeriod({ ...c, id: 'period', title: '학창 시절', startYear: null, endYear: null });
+    const { file } = await buildBackup(r); expect((await verifyBackup(file)).visitsAdded).toBe(1);
+    const other = isolated(); await importBackup(file, other); await importBackup(file, other);
+    expect(await other.snapshot()).toEqual(await r.snapshot());
+  });
+  it('closes cooperative old tabs for versionchange, and recovers a newer compatible DB', async () => {
+    const r = isolated(); const db = await r.getDb();
+    const newer = await openDB(db.name, db.version + 1); newer.close();
+    expect((await r.getDb()).version).toBe(db.version + 1);
+  });
+});

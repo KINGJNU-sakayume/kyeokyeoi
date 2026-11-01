@@ -7,8 +7,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      registerType: 'prompt',
+      injectRegister: false,
       manifest: {
         name: '켜켜이',
         short_name: '켜켜이',
@@ -16,7 +16,7 @@ export default defineConfig({
         start_url: '/kyeokyeoi/',
         scope: '/kyeokyeoi/',
         display: 'standalone',
-        orientation: 'portrait',
+        
         theme_color: '#F5F7F3',
         background_color: '#F5F7F3',
         lang: 'ko',
@@ -41,7 +41,7 @@ export default defineConfig({
       },
       workbox: {
         // 앱 셸과 지도 데이터는 미리 받아 두고, 글꼴 조각은 처음 쓸 때 받아서 보관해요
-        globPatterns: ['**/*.{js,css,html,svg,png,json}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,json,woff2}'],
         globIgnores: ['**/manifest.webmanifest'],
         runtimeCaching: [
           {
@@ -59,6 +59,6 @@ export default defineConfig({
   ],
   base: '/kyeokyeoi/',
   build: {
-    outDir: 'docs',
+    outDir: 'dist',
   },
 })

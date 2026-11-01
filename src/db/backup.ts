@@ -1,8 +1,11 @@
-import type { Memory, PhotoRecord } from './model';
+import type { Memory, PhotoRecord, RegionVisit, MemoryCollection, LifePeriod } from './model';
 import type { Repository, Snapshot } from './index';
 
 export const BACKUP_VERSION = 3;
 export interface BackupPayload {
+  regionVisits: RegionVisit[];
+  collections: MemoryCollection[];
+  lifePeriods: LifePeriod[];
   memories: Memory[];
   photos: Record<string, string>;
   photoOwners: Record<string, string>;
@@ -13,7 +16,7 @@ export interface BackupFile extends BackupPayload {
   integrity: { algorithm: 'SHA-256'; digest: string };
 }
 export interface ImportReport {
-  added: number; skipped: number; invalid: number; conflicts: number; missingPhotos: number; issues: string[];
+  added: number; skipped: number; invalid: number; conflicts: number; missingPhotos: number; visitsAdded: number; collectionsAdded: number; periodsAdded: number; issues: string[];
 }
 export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -43,7 +46,7 @@ export async function serializeBackup(snapshot: Snapshot) {
   const photos: Record<string, string> = Object.create(null);
   const photoOwners: Record<string, string> = Object.create(null);
   for (const p of snapshot.photos) { photos[p.id] = await encodePhoto(p.blob); photoOwners[p.id] = p.memoryId; }
-  const payload: BackupPayload = { memories: snapshot.memories, photos, photoOwners, settings: snapshot.settings };
+  const payload: BackupPayload = { memories: snapshot.memories, photos, photoOwners, settings: snapshot.settings, regionVisits: snapshot.regionVisits, collections: snapshot.collections, lifePeriods: snapshot.lifePeriods };
   const missingPhotos = payload.memories.reduce((n, m) => n + m.photoIds.filter(id => !photos[id] || photoOwners[id] !== m.id).length, 0);
   return { file: { app: 'kyeokyeoi', version: BACKUP_VERSION, exportedAt: new Date().toISOString(), ...payload, integrity: { algorithm: 'SHA-256', digest: await digest(payload) } } satisfies BackupFile, missingPhotos };
 }
@@ -68,6 +71,9 @@ export async function validateBackup(json: unknown): Promise<BackupPayload> {
     photoOwners[id] = m.id;
   }
   const payload = {
+    regionVisits: (json.version === 3 ? json.regionVisits : []) as RegionVisit[],
+    collections: (json.version === 3 ? json.collections : []) as MemoryCollection[],
+    lifePeriods: (json.version === 3 ? json.lifePeriods : []) as LifePeriod[],
     memories, photos: json.photos as Record<string, string>,
     photoOwners: json.version === 3 && object(json.photoOwners) ? json.photoOwners as Record<string, string> : photoOwners,
     settings: json.settings,
@@ -79,7 +85,7 @@ export async function validateBackup(json: unknown): Promise<BackupPayload> {
 /** Preparation is read-only; conflicts never overwrite existing records. Writes commit together. */
 export async function mergeBackup(json: unknown, repo: Repository): Promise<ImportReport> {
   const payload = await validateBackup(json);
-  const report: ImportReport = { added: 0, skipped: 0, invalid: 0, conflicts: 0, missingPhotos: 0, issues: [] };
+  const report: ImportReport = { added: 0, skipped: 0, invalid: 0, conflicts: 0, missingPhotos: 0, visitsAdded: 0, collectionsAdded: 0, periodsAdded: 0, issues: [] };
   const unique = new Map<string, Memory>();
   for (const raw of payload.memories) {
     if (!validMemory(raw)) { report.invalid++; report.issues.push('형식이 손상된 기억을 건너뛰었어요.'); continue; }
@@ -102,7 +108,24 @@ export async function mergeBackup(json: unknown, repo: Repository): Promise<Impo
   const existingPhotos = new Map<string, { record: PhotoRecord; data: string }>();
   for (const p of before.photos) existingPhotos.set(p.id, { record: p, data: await encodePhoto(p.blob) });
   const db = await repo.getDb();
-  const tx = db.transaction(['memories', 'photos', 'settings'], 'readwrite');
+  const extras = [
+    ['regionVisits', payload.regionVisits, 'regionCode', 'visitsAdded'],
+    ['collections', payload.collections, 'id', 'collectionsAdded'],
+    ['lifePeriods', payload.lifePeriods, 'id', 'periodsAdded'],
+  ] as const;
+  for (const [store, records, key] of extras) {
+    if (!Array.isArray(records)) throw new Error(`백업 저장소가 손상됐어요: ${store}`);
+    const seen = new Map<string, unknown>();
+    for (const raw of records) {
+      if (!object(raw) || typeof raw[key] !== 'string' || typeof raw.id !== 'string' || !Number.isFinite(raw.updatedAt) ||
+        (store === 'regionVisits' ? typeof raw.regionLabel !== 'string' || !Number.isFinite(raw.recordedAt) || !(raw.visitedOn === null || typeof raw.visitedOn === 'string') : typeof raw.title !== 'string' || !strings(raw.memoryIds) || !Number.isFinite(raw.createdAt)) ||
+        (store === 'lifePeriods' && !((raw.startYear === null || Number.isFinite(raw.startYear)) && (raw.endYear === null || Number.isFinite(raw.endYear))))) throw new Error(`백업 항목이 손상됐어요: ${store}`);
+      const id = String(raw[key]);
+      if (seen.has(id) && canonical(seen.get(id)) !== canonical(raw)) throw new Error(`백업 안의 ID가 중복됐어요: ${id}`);
+      seen.set(id, raw);
+    }
+  }
+  const tx = db.transaction(['memories', 'photos', 'settings', 'regionVisits', 'collections', 'lifePeriods'], 'readwrite');
   try {
     for (const m of unique.values()) {
       const existing = await tx.objectStore('memories').get(m.id);
@@ -137,6 +160,11 @@ export async function mergeBackup(json: unknown, repo: Repository): Promise<Impo
       const existing = await tx.objectStore('settings').get(key);
       if (existing === undefined) await tx.objectStore('settings').put(value, key);
       else if (canonical(existing) !== canonical(value)) report.issues.push(`현재 설정을 유지했어요: ${key}`);
+    }
+    for (const [store, records, key, counter] of extras) for (const record of records) {
+      const existing = await tx.objectStore(store).get(record[key as keyof typeof record] as string);
+      if (!existing) { await tx.objectStore(store).add(record); report[counter]++; }
+      else if (canonical(existing) !== canonical(record)) { report.conflicts++; report.issues.push(`기존 데이터를 유지했어요: ${store} / ${record.id}`); }
     }
     await tx.done;
   } catch (e) { try { tx.abort(); } catch { /* already aborted */ } await tx.done.catch(() => {}); throw e; }

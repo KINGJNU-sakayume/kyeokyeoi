@@ -14,6 +14,8 @@ export interface TimeValue {
 }
 
 export interface Memory {
+  source?: SourceReference;
+  relatedMemoryIds?: string[];
   id: string;
   title: string;
   regionCode: string | null;
@@ -40,3 +42,32 @@ export interface PhotoRecord {
 
 export type SettingKey = 'birth_year' | 'app_theme' | 'onboarding_done' | 'last_backup_at';
 
+
+/** Optional provenance for a future explicit, user-confirmed import. No network dependency. */
+export interface SourceReference {
+  service: string;
+  originalId: string;
+  revision: number;
+  certainty: 'confirmed' | 'inferred';
+  url?: string;
+}
+export interface RegionVisit {
+  id: string;
+  regionCode: string;
+  regionLabel: string;
+  visitedOn: string | null;
+  recordedAt: number;
+  updatedAt: number;
+  source?: SourceReference;
+}
+export interface MemoryCollection {
+  id: string;
+  title: string;
+  memoryIds: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+export interface LifePeriod extends MemoryCollection {
+  startYear: number | null;
+  endYear: number | null;
+}
