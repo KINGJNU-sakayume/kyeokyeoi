@@ -1,8 +1,8 @@
 import { createContext, useContext } from 'react';
-import type { Memory } from './db/index';
+import type { Memory, RegionVisit, MemoryCollection, LifePeriod } from './db/index';
 import type { Theme } from './theme/index';
 
-export type Tab = 'map' | 'timeline' | 'settings';
+export type Tab = 'map' | 'timeline' | 'memories' | 'collections' | 'settings';
 
 export type Route =
   | { type: 'onboarding' }
@@ -16,6 +16,16 @@ export interface SheetPrefill {
 
 export interface AppContextValue {
   memories: Memory[];
+  visits: RegionVisit[];
+  collections: MemoryCollection[];
+  periods: LifePeriod[];
+  refreshArchive: () => Promise<void>;
+  mapMode: 'visits' | 'memories';
+  setMapMode: (mode: 'visits' | 'memories') => void;
+  pickedRegion: string | null;
+  pickRegion: (code: string | null) => void;
+  archiveTarget: string | null;
+  setArchiveTarget: (id: string | null) => void;
   refreshMemories: () => Promise<void>;
   birthYear: number | null;
   setBirthYear: (year: number) => Promise<void>;

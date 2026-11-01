@@ -1,6 +1,6 @@
 import type { Memory } from '../db/index';
 
-export function getVisitCounts(memories: Memory[]): Map<string, number> {
+export function getMemoryCounts(memories: Memory[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const m of memories) {
     if (m.regionCode) counts.set(m.regionCode, (counts.get(m.regionCode) ?? 0) + 1);

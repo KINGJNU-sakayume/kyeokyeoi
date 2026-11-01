@@ -23,8 +23,7 @@ export default function RegionPicker({ onSelect, onClose, currentCode }: RegionP
     if (q) {
       return set.regions
         .filter(r => (provinceOf(r)?.name + r.name).replace(/\s+/g, '').includes(q) || regionLabel(r).replace(/\s+/g, '').includes(q))
-        .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
-        .slice(0, 40);
+        .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     }
     return regionsInProvince(set, prov);
   }, [set, q, prov]);

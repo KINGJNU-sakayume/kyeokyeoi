@@ -26,9 +26,17 @@ export default function Sheet({ onClose, title, left, right, size = 'auto', labe
   useEffect(() => {
     // 위에 다른 시트·대화상자가 떠 있으면 맨 위 것만 Esc에 반응해요
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || !ref.current) return;
+      if (!ref.current) return;
       const layers = document.querySelectorAll('[aria-modal="true"]');
-      if (layers[layers.length - 1] === ref.current) closeRef.current();
+      if (layers[layers.length - 1] !== ref.current) return;
+      if (e.key === 'Escape') closeRef.current();
+      if (e.key === 'Tab') {
+        const items = [...ref.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type=hidden]), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0);
+        const first = items[0], last = items.at(-1);
+        if (!first) { e.preventDefault(); return; }
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     };
     window.addEventListener('keydown', onKey);
     const prev = document.activeElement as HTMLElement | null;

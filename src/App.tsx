@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getMemories, getSetting, setSetting } from './db/index';
-import type { Memory } from './db/index';
+import { getMemories, getSetting, setSetting, getRegionVisits, getCollections, getLifePeriods, repository } from './db/index';
+import type { Memory, RegionVisit, MemoryCollection, LifePeriod } from './db/index';
 import { applyTheme } from './theme/index';
 import type { Theme } from './theme/index';
 import { AppContext } from './AppContext';
@@ -10,7 +10,9 @@ import MainLayout from './views/MainLayout';
 import MemoryDetailView from './views/MemoryDetailView';
 import AddMemorySheet from './components/AddMemorySheet';
 
-const TABS: Tab[] = ['map', 'timeline', 'settings'];
+import { applyPwaUpdate, subscribePwa } from './pwa';
+
+const TABS: Tab[] = ['map', 'timeline', 'memories', 'collections', 'settings'];
 
 function routeToHash(r: Route): string {
   if (r.type === 'detail') return `#/memory/${encodeURIComponent(r.memoryId)}`;
@@ -20,7 +22,7 @@ function routeToHash(r: Route): string {
 
 function hashToRoute(hash: string): Route {
   const m = /^#\/memory\/(.+)$/.exec(hash);
-  if (m) return { type: 'detail', memoryId: decodeURIComponent(m[1]) };
+  if (m) { try { return { type: 'detail', memoryId: decodeURIComponent(m[1]) }; } catch { return { type: 'main', tab: 'map' }; } }
   const tab = hash.replace(/^#\//, '') as Tab;
   return { type: 'main', tab: TABS.includes(tab) ? tab : 'map' };
 }
@@ -37,6 +39,14 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(false);
   const [route, setRoute] = useState<Route>(() => hashToRoute(location.hash));
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [visits, setVisits] = useState<RegionVisit[]>([]);
+  const [collections, setCollections] = useState<MemoryCollection[]>([]);
+  const [periods, setPeriods] = useState<LifePeriod[]>([]);
+  const [mapMode, setMapMode] = useState<'visits' | 'memories'>('visits');
+  const [pickedRegion, pickRegion] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
+  const [storageStatus, setStorageStatus] = useState<string | null>(null);
+  const [updateReady, setUpdateReady] = useState(false);
   const [birthYear, setBirthYearState] = useState<number | null>(null);
   const [theme, setThemeState] = useState<Theme>('A');
   const [sheet, setSheet] = useState<SheetState>(null);
@@ -47,18 +57,18 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [done, savedTheme, savedBirthYear, saved] = await Promise.all([
+        const [done, savedTheme, savedBirthYear, saved, savedVisits, savedCollections, savedPeriods] = await Promise.all([
           getSetting<boolean>('onboarding_done'),
           getSetting<Theme>('app_theme'),
           getSetting<number>('birth_year'),
-          getMemories(),
+          getMemories(), getRegionVisits(), getCollections(), getLifePeriods(),
         ]);
-        const t = savedTheme ?? 'A';
+        const t = savedTheme && ['A', 'B', 'C', 'D'].includes(savedTheme) ? savedTheme : 'A';
         applyTheme(t);
         setThemeState(t);
         setBirthYearState(savedBirthYear ?? null);
-        setMemories(saved);
-        setOnboarded(!!done || saved.length > 0);
+        setMemories(saved); setVisits(savedVisits); setCollections(savedCollections); setPeriods(savedPeriods);
+        setOnboarded(!!done || saved.length > 0 || savedVisits.length > 0);
       } catch (e) {
         console.error('[켜켜이] 시작 실패', e);
         setLoadError(e instanceof Error ? e.message : String(e));
@@ -79,8 +89,21 @@ export default function App() {
   }, []);
 
   const refreshMemories = useCallback(async () => {
-    setMemories(await getMemories());
+    const [m, v, c, p] = await Promise.all([getMemories(), getRegionVisits(), getCollections(), getLifePeriods()]);
+    setMemories(m); setVisits(v); setCollections(c); setPeriods(p);
+    const [t, y] = await Promise.all([getSetting<Theme>('app_theme'), getSetting<number>('birth_year')]);
+    if (t && ['A', 'B', 'C', 'D'].includes(t)) { applyTheme(t); setThemeState(t); }
+    if (y !== undefined) setBirthYearState(y);
   }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => setStorageStatus((e as CustomEvent<string>).detail);
+    const refresh = () => { if (!document.hidden) refreshMemories().catch(() => {}); };
+    window.addEventListener('storage-status', handler);
+    document.addEventListener('visibilitychange', refresh);
+    const unsubscribe = subscribePwa(setUpdateReady);
+    return () => { window.removeEventListener('storage-status', handler); document.removeEventListener('visibilitychange', refresh); unsubscribe(); };
+  }, [refreshMemories]);
 
   const setBirthYear = useCallback(async (year: number) => {
     await setSetting('birth_year', year);
@@ -119,7 +142,7 @@ export default function App() {
   }, []);
 
   const ctx: AppContextValue = useMemo(() => ({
-    memories, refreshMemories,
+    memories, refreshMemories, refreshArchive: refreshMemories, visits, collections, periods, mapMode, setMapMode, pickedRegion, pickRegion, archiveTarget, setArchiveTarget,
     birthYear, setBirthYear,
     theme, setTheme,
     route, navigate, goBack,
@@ -127,7 +150,7 @@ export default function App() {
     openEditSheet: (id: string) => setSheet({ mode: 'edit', id }),
     closeSheet: () => setSheet(null),
     showToast,
-  }), [memories, refreshMemories, birthYear, setBirthYear, theme, setTheme, route, navigate, goBack, showToast]);
+  }), [memories, refreshMemories, visits, collections, periods, mapMode, pickedRegion, archiveTarget, birthYear, setBirthYear, theme, setTheme, route, navigate, goBack, showToast]);
 
   if (!ready) return <div className="screen" aria-busy="true" />;
 
@@ -144,6 +167,8 @@ export default function App() {
 
   return (
     <AppContext.Provider value={ctx}>
+      {storageStatus && <div className="app-notice" role="status">{storageStatus}<button className="text-btn" onClick={() => location.reload()}>새로고침</button></div>}
+      {updateReady && !sheet && <div className="app-notice" role="status">새 버전이 준비됐어요.<button className="text-btn" onClick={async () => { await repository.close(); await applyPwaUpdate(true); }}>업데이트</button></div>}
       {!onboarded ? (
         <OnboardingFlow onDone={() => { setOnboarded(true); navigate({ type: 'main', tab: 'map' }, { replace: true }); }} />
       ) : route.type === 'detail' ? (

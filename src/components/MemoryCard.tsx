@@ -31,9 +31,7 @@ export default function MemoryCard({ memory, onClick, hideRegion }: MemoryCardPr
         )}
         {memory.memo && <p className="entry__memo">{memory.memo}</p>}
       </div>
-      {memory.photoIds.length > 0 && (
-        thumb ? <img className="entry__thumb" src={thumb} alt="" /> : <span className="entry__thumb" />
-      )}
+      {thumb && <img className="entry__thumb" src={thumb} alt="" />}
     </button>
   );
 }
