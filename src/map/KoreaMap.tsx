@@ -21,7 +21,16 @@ const TAP_SLOP = 8;
 const MAX_ZOOM = 12;
 const OFFSHORE = new Set(['37430']); // 울릉군(독도 포함)
 
-export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive = true, focusBox, className, rememberKey, dotOverview = false }: KoreaMapProps) {
+export default function KoreaMap({
+  fills,
+  selectedCode,
+  onRegionTap,
+  interactive = true,
+  focusBox,
+  className,
+  rememberKey,
+  dotOverview = false,
+}: KoreaMapProps) {
   const patternId = useId().replace(/:/g, '');
   const set = useRegions();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -38,13 +47,16 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
     ro.observe(el);
     return () => ro.disconnect();
   }, [set]);
-  const full = useMemo<View | null>(() => (set ? { x: 0, y: 0, w: set.width, h: set.height } : null), [set]);
+  const full = useMemo<View | null>(
+    () => (set ? { x: 0, y: 0, w: set.width, h: set.height } : null),
+    [set],
+  );
 
   // 처음 화면: 고른 영역, 없으면 울릉·독도를 뺀 본토와 제주에 맞춰요 (축소하면 전체가 보여요)
   const home = useMemo(() => {
     if (!set) return null;
     if (focusBox) return { box: focusBox, pad: 0.35, minW: set.width / 6 };
-    return { box: unionBox(set.regions.filter(r => !OFFSHORE.has(r.code))), pad: 0.04, minW: 0 };
+    return { box: unionBox(set.regions.filter((r) => !OFFSHORE.has(r.code))), pad: 0.04, minW: 0 };
   }, [set, focusBox]);
 
   const initial = useMemo<View | null>(() => {
@@ -54,8 +66,12 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
     const a = aspect ?? full.w / full.h;
     const box = home?.box ?? [0, 0, full.w, full.h];
     const pad = home?.pad ?? 0;
-    const bw = box[2] - box[0], bh = box[3] - box[1];
-    const w = Math.min(full.w, Math.max(bw * (1 + pad * 2), bh * a * (1 + pad * 2), full.w / MAX_ZOOM, home?.minW ?? 0));
+    const bw = box[2] - box[0],
+      bh = box[3] - box[1];
+    const w = Math.min(
+      Math.max(full.w, full.h * a),
+      Math.max(bw * (1 + pad * 2), bh * a * (1 + pad * 2), full.w / MAX_ZOOM, home?.minW ?? 0),
+    );
     const h = w / a;
     return clampView({ x: box[0] + bw / 2 - w / 2, y: box[1] + bh / 2 - h / 2, w, h }, full, a);
   }, [full, home, aspect, rememberKey, focusBox]);
@@ -68,41 +84,68 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
     setView(initial);
   }
   const viewRef = useRef<View | null>(initial);
-  useEffect(() => { viewRef.current = view; }, [view]);
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   const aspectRef = useRef<number | null>(null);
-  useEffect(() => { aspectRef.current = aspect; }, [aspect]);
+  useEffect(() => {
+    aspectRef.current = aspect;
+  }, [aspect]);
 
-  const apply = useCallback((v: View) => {
-    if (!full) return;
-    const c = clampView(v, full, aspectRef.current ?? full.w / full.h);
-    viewRef.current = c;
-    setView(c);
-    if (rememberKey) savedViews.set(rememberKey, c);
-  }, [full, rememberKey]);
+  const apply = useCallback(
+    (v: View) => {
+      if (!full) return;
+      const c = clampView(v, full, aspectRef.current ?? full.w / full.h);
+      viewRef.current = c;
+      setView(c);
+      if (rememberKey) savedViews.set(rememberKey, c);
+    },
+    [full, rememberKey],
+  );
 
   /** 화면 좌표 → 지도 좌표 */
   const toMap = useCallback((clientX: number, clientY: number) => {
-    const svg = svgRef.current, v = viewRef.current;
+    const svg = svgRef.current,
+      v = viewRef.current;
     if (!svg || !v) return { x: 0, y: 0, s: 1 };
     const rect = svg.getBoundingClientRect();
     const s = Math.max(v.w / rect.width, v.h / rect.height);
-    const ox = (rect.width * s - v.w) / 2, oy = (rect.height * s - v.h) / 2;
+    const ox = (rect.width * s - v.w) / 2,
+      oy = (rect.height * s - v.h) / 2;
     return { x: v.x - ox + (clientX - rect.left) * s, y: v.y - oy + (clientY - rect.top) * s, s };
   }, []);
 
-  const zoomAt = useCallback((factor: number, mx: number, my: number) => {
-    const v = viewRef.current;
-    if (!v || !full) return;
-    const w = Math.min(full.w, Math.max(full.w / MAX_ZOOM, v.w / factor));
-    const k = w / v.w;
-    apply({ x: mx - (mx - v.x) * k, y: my - (my - v.y) * k, w, h: v.h * k });
-  }, [apply, full]);
+  const zoomAt = useCallback(
+    (factor: number, mx: number, my: number) => {
+      const v = viewRef.current;
+      if (!v || !full) return;
+      const w = Math.min(
+        Math.max(full.w, full.h * (aspectRef.current ?? full.w / full.h)),
+        Math.max(full.w / MAX_ZOOM, v.w / factor),
+      );
+      const k = w / v.w;
+      apply({ x: mx - (mx - v.x) * k, y: my - (my - v.y) * k, w, h: v.h * k });
+    },
+    [apply, full],
+  );
 
   // ---- 포인터: 한 손가락 이동, 두 손가락 확대, 짧은 탭은 지역 선택 ----
   const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const gesture = useRef<{ code: string | null; startX: number; startY: number; moved: boolean; multi: boolean; pinchDist: number }>({
-    code: null, startX: 0, startY: 0, moved: false, multi: false, pinchDist: 0,
+  const gesture = useRef<{
+    code: string | null;
+    startX: number;
+    startY: number;
+    moved: boolean;
+    multi: boolean;
+    pinchDist: number;
+  }>({
+    code: null,
+    startX: 0,
+    startY: 0,
+    moved: false,
+    multi: false,
+    pinchDist: 0,
   });
 
   function onPointerDown(e: React.PointerEvent) {
@@ -112,7 +155,10 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
     if (pointers.current.size === 1) {
       const el = (e.target as Element).closest('[data-code]');
       g.code = el?.getAttribute('data-code') ?? null;
-      g.startX = e.clientX; g.startY = e.clientY; g.moved = false; g.multi = false;
+      g.startX = e.clientX;
+      g.startY = e.clientY;
+      g.moved = false;
+      g.multi = false;
     } else {
       g.multi = true;
       g.pinchDist = pinchDistance();
@@ -136,7 +182,8 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
       if (g.moved) {
         const v = viewRef.current;
         const { s } = toMap(e.clientX, e.clientY);
-        if (v) apply({ ...v, x: v.x - (e.clientX - prev.x) * s, y: v.y - (e.clientY - prev.y) * s });
+        if (v)
+          apply({ ...v, x: v.x - (e.clientX - prev.x) * s, y: v.y - (e.clientY - prev.y) * s });
       }
       pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     } else {
@@ -156,7 +203,8 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
     const g = gesture.current;
     const wasSingle = pointers.current.size === 1;
     pointers.current.delete(e.pointerId);
-    if (wasSingle && !g.moved && !g.multi && g.code && e.type === 'pointerup') onRegionTap?.(g.code);
+    if (wasSingle && !g.moved && !g.multi && g.code && e.type === 'pointerup')
+      onRegionTap?.(g.code);
     if (pointers.current.size === 0) g.multi = false;
     else g.pinchDist = pinchDistance();
   }
@@ -178,13 +226,22 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
     if (v) zoomAt(factor, v.x + v.w / 2, v.y + v.h / 2);
   }
 
-  if (set === null) return <div ref={wrapRef} className="map map--error"><p>지도 데이터를 불러오지 못했어요. 연결 후 다시 열어 주세요.</p></div>;
+  if (set === null)
+    return (
+      <div ref={wrapRef} className="map map--error">
+        <p>지도 데이터를 불러오지 못했어요. 연결 후 다시 열어 주세요.</p>
+      </div>
+    );
   if (set === undefined || !view) {
     return <div ref={wrapRef} className={`map ${className ?? ''}`} aria-busy="true" />;
   }
 
-  const moved = !!initial && (Math.abs(view.w - initial.w) > 1 || Math.abs(view.x - initial.x) > 1 || Math.abs(view.y - initial.y) > 1);
-  const canZoomOut = !!full && view.w < full.w - 1;
+  const moved =
+    !!initial &&
+    (Math.abs(view.w - initial.w) > 1 ||
+      Math.abs(view.x - initial.x) > 1 ||
+      Math.abs(view.y - initial.y) > 1);
+  const canZoomOut = !!full && view.w < Math.max(full.w, full.h * (aspect ?? full.w / full.h)) - 1;
   const selected = selectedCode ? set.byCode.get(selectedCode) : undefined;
 
   const dots = dotOverview && !!full && view.w > full.w * 0.48;
@@ -202,8 +259,28 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {dots && <defs>{set.regions.map(r => <pattern key={r.code} id={`${patternId}-${r.code}`} width="5" height="5" patternUnits="userSpaceOnUse"><circle cx="2.5" cy="2.5" r="1.35" fill={fills?.get(r.code) ?? 'var(--land)'} /></pattern>)}</defs>}
-        {set.regions.map(r => (
+        {dots && (
+          <defs>
+            {set.regions.map((r) => (
+              <pattern
+                key={r.code}
+                id={`${patternId}-${r.code}`}
+                width="5"
+                height="5"
+                patternUnits="userSpaceOnUse"
+              >
+                <circle
+                  cx="2.5"
+                  cy="2.5"
+                  r="1.35"
+                  fill={fills?.get(r.code) ?? 'var(--ink-3)'}
+                  opacity={fills?.has(r.code) ? 1 : 0.7}
+                />
+              </pattern>
+            ))}
+          </defs>
+        )}
+        {set.regions.map((r) => (
           <path
             key={r.code}
             d={r.path}
@@ -214,20 +291,53 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
             <title>{r.name}</title>
           </path>
         ))}
-        {dots && <g className="map__dots" aria-hidden="true" pointerEvents="none">{set.regions.map(r => <path key={r.code} d={r.path} fill={`url(#${patternId}-${r.code})`} />)}</g>}
+        {dots && (
+          <g className="map__dots" aria-hidden="true" pointerEvents="none">
+            {set.regions.map((r) => (
+              <path key={r.code} d={r.path} fill={`url(#${patternId}-${r.code})`} />
+            ))}
+          </g>
+        )}
         {selected && <path d={selected.path} className="map__selected" />}
       </svg>
       {interactive && (
         <div className="map__controls" role="group" aria-label="지도 확대">
-          <button type="button" className="icon-btn" onClick={() => zoomButton(1.6)} aria-label="확대">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => zoomButton(1.6)}
+            aria-label="확대"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
           </button>
-          <button type="button" className="icon-btn" onClick={() => zoomButton(1 / 1.6)} aria-label="축소" disabled={!canZoomOut}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => zoomButton(1 / 1.6)}
+            aria-label="축소"
+            disabled={!canZoomOut}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12h14" />
+            </svg>
           </button>
           {moved && (
-            <button type="button" className="icon-btn" onClick={() => initial && apply(initial)} aria-label="처음 위치로">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => {
+                if (rememberKey && full) {
+                  const w = Math.max(full.w, full.h * (aspect ?? full.w / full.h));
+                  apply({ x: (full.w - w) / 2, y: 0, w, h: w / (aspect ?? full.w / full.h) });
+                } else if (initial) apply(initial);
+              }}
+              aria-label={rememberKey ? '전체 지도' : '처음 위치로'}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              </svg>
             </button>
           )}
         </div>
@@ -237,10 +347,10 @@ export default function KoreaMap({ fills, selectedCode, onRegionTap, interactive
 }
 
 function clampView(v: View, full: View, aspect: number): View {
-  const w = Math.min(full.w, Math.max(full.w / MAX_ZOOM, v.w));
+  const w = Math.min(Math.max(full.w, full.h * aspect), Math.max(full.w / MAX_ZOOM, v.w));
   const h = w / aspect;
   // 지도 밖으로 반 화면 이상 밀려나지 않게. 한 축이 지도보다 넓으면 그 축은 가운데에 둬요.
-  const x = w >= full.w ? 0 : Math.min(full.w - w / 2, Math.max(-w / 2, v.x));
+  const x = w >= full.w ? (full.w - w) / 2 : Math.min(full.w - w / 2, Math.max(-w / 2, v.x));
   const y = h >= full.h ? (full.h - h) / 2 : Math.min(full.h - h / 2, Math.max(-h / 2, v.y));
   return { x, y, w, h };
 }

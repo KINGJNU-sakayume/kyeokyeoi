@@ -42,7 +42,6 @@ export interface PhotoRecord {
 
 export type SettingKey = 'birth_year' | 'app_theme' | 'onboarding_done' | 'last_backup_at';
 
-
 /** Optional provenance for a future explicit, user-confirmed import. No network dependency. */
 export interface SourceReference {
   service: string;

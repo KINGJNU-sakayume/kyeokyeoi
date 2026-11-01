@@ -1,14 +1,20 @@
 import type { Tab } from '../AppContext';
-import { IconLayers, IconMap } from './icons';
+import { IconBook, IconCollection, IconLayers, IconMap } from './icons';
 
 const TABS: { id: Tab; label: string; Icon: () => React.JSX.Element }[] = [
   { id: 'map', label: '지도', Icon: IconMap },
   { id: 'timeline', label: '시간', Icon: IconLayers },
-  { id: 'memories', label: '기억', Icon: IconLayers },
-  { id: 'collections', label: '컬렉션', Icon: IconLayers },
+  { id: 'memories', label: '기억', Icon: IconBook },
+  { id: 'collections', label: '컬렉션', Icon: IconCollection },
 ];
 
-export default function BottomTabBar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (tab: Tab) => void }) {
+export default function BottomTabBar({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: Tab;
+  onTabChange: (tab: Tab) => void;
+}) {
   return (
     <nav className="tabbar" aria-label="화면">
       {TABS.map(({ id, label, Icon }) => (

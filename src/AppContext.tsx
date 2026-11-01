@@ -5,9 +5,7 @@ import type { Theme } from './theme/index';
 export type Tab = 'map' | 'timeline' | 'memories' | 'collections' | 'settings';
 
 export type Route =
-  | { type: 'onboarding' }
-  | { type: 'main'; tab: Tab }
-  | { type: 'detail'; memoryId: string };
+  { type: 'onboarding' } | { type: 'main'; tab: Tab } | { type: 'detail'; memoryId: string };
 
 export interface SheetPrefill {
   regionCode: string;

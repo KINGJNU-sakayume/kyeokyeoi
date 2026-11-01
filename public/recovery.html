@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>켜켜이 · 원본 백업</title>
+  <style>
+    body {
+      margin: 40px auto;
+      padding: 0 24px;
+      max-width: 680px;
+      background: #f5f7f3;
+      color: #18201b;
+      font:
+        16px/1.8 system-ui,
+        sans-serif;
+    }
+    h1 {
+      font-size: 24px;
+    }
+    button {
+      padding: 12px 20px;
+      margin-top: 16px;
+      color: #fff;
+      background: #203a2a;
+      border: 0;
+      border-radius: 8px;
+      font: inherit;
+    }
+    a {
+      color: #3d6a4e;
+    }
+    pre {
+      white-space: pre-wrap;
+      font: inherit;
+      border-top: 1px solid #d6ddd4;
+      padding-top: 16px;
+    }
+  </style>
+  <h1>켜켜이 · 원본 백업</h1>
+  <p>
+    기본 화면을 열기 어려울 때 이 브라우저의 기록을 백업해요. 저장소 버전을 바꾸거나 원본을 수정하지
+    않아요.
+  </p>
+  <button id="export">원본 백업 내려받기</button>
+  <pre id="status" role="status"></pre>
+  <p>
+    복원은 최신 켜켜이의 설정에서 먼저 시험해 주세요. 이 화면의 다운로드는 복원 검증 전 백업이에요.
+  </p>
+  <a href="./#/settings">설정으로 돌아가기</a>
+  <script type="module">
+    const status = document.querySelector('#status');
+    function canonical(value) {
+      if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+      if (value && typeof value === 'object')
+        return `{${Object.entries(value)
+          .filter(([, v]) => v !== undefined)
+          .sort(([a], [b]) => a.localeCompare(b, 'en'))
+          .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`)
+          .join(',')}}`;
+      return JSON.stringify(value);
+    }
+    function request(req) {
+      return new Promise((resolve, reject) => {
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    async function photoData(blob) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 8192)
+        s += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      return `data:${blob.type || 'application/octet-stream'};base64,${btoa(s)}`;
+    }
+    document.querySelector('#export').onclick = async () => {
+      const button = document.querySelector('#export');
+      button.disabled = true;
+      let db;
+      try {
+        const req = indexedDB.open('kkyeokyeoi-db');
+        req.onupgradeneeded = () => req.transaction.abort(); // An absent database must not be created.
+        db = await request(req);
+        db.onversionchange = () => db.close();
+        const names = [...db.objectStoreNames];
+        if (!names.includes('memories'))
+          throw new Error('기억 저장소가 없어요. 원본은 변경하지 않았어요.');
+        const tx = db.transaction(names, 'readonly');
+        const entries = await Promise.all(
+          names.map(async (name) => {
+            const store = tx.objectStore(name);
+            const [keys, values] = await Promise.all([
+              request(store.getAllKeys()),
+              request(store.getAll()),
+            ]);
+            return [name, { keys, values }];
+          }),
+        );
+        const stores = Object.fromEntries(entries);
+        const photos = Object.create(null),
+          photoOwners = Object.create(null);
+        // v1 stores its originals inline; preserve the originals in a separate recovery archive.
+        if (db.version < 2) {
+          const legacy = {
+            app: 'kyeokyeoi-recovery',
+            databaseVersion: db.version,
+            exportedAt: new Date().toISOString(),
+            stores,
+          };
+          download(legacy, 'kyeokyeoi-v1-original-recovery.json');
+          status.textContent =
+            'v1 원본 보존 파일을 만들었어요. 이 파일은 일반 가져오기 형식이 아니에요. 변환 오류를 수정한 복구 버전에서 사용해 주세요.';
+          return;
+        }
+        for (const p of stores.photos?.values ?? []) {
+          if (!(p.blob instanceof Blob)) throw new Error(`사진 Blob을 읽을 수 없어요: ${p.id}`);
+          photos[p.id] = await photoData(p.blob);
+          photoOwners[p.id] = p.memoryId;
+        }
+        const payload = {
+          memories: stores.memories.values,
+          photos,
+          photoOwners,
+          settings: Object.fromEntries(
+            (stores.settings?.keys ?? []).map((key, i) => [key, stores.settings.values[i]]),
+          ),
+          regionVisits: stores.regionVisits?.values ?? [],
+          collections: stores.collections?.values ?? [],
+          lifePeriods: stores.lifePeriods?.values ?? [],
+        };
+        const hash = await crypto.subtle.digest(
+          'SHA-256',
+          new TextEncoder().encode(canonical(payload)),
+        );
+        const file = {
+          app: 'kyeokyeoi',
+          version: 3,
+          exportedAt: new Date().toISOString(),
+          ...payload,
+          integrity: {
+            algorithm: 'SHA-256',
+            digest: [...new Uint8Array(hash)].map((n) => n.toString(16).padStart(2, '0')).join(''),
+          },
+        };
+        download(file, 'kyeokyeoi-original-recovery.json');
+        status.textContent = `DB v${db.version} 원본 백업: 기억 ${payload.memories.length}개 · 사진 ${Object.keys(photos).length}개 · 방문 ${payload.regionVisits.length}곳. 복원 검증은 아직 수행하지 않았어요.`;
+      } catch (e) {
+        status.textContent = `백업을 만들지 못했어요: ${e.message}. 원본 저장소는 유지됩니다.`;
+      } finally {
+        db?.close();
+        button.disabled = false;
+      }
+    };
+    function download(file, name) {
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(file)], { type: 'application/json' }),
+      );
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+  </script>
+</html>

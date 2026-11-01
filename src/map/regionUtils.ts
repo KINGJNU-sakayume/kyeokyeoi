@@ -9,7 +9,7 @@ export function getMemoryCounts(memories: Memory[]): Map<string, number> {
 }
 
 export function getMemoriesByRegion(regionCode: string, memories: Memory[]): Memory[] {
-  return memories.filter(m => m.regionCode === regionCode);
+  return memories.filter((m) => m.regionCode === regionCode);
 }
 
 /** 추억 개수 → 지도 색 단계 (CSS 변수) */
