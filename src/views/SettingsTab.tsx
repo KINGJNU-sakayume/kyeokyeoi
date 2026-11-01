@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../AppContext';
 import { THEMES, THEME_NAMES, THEME_SWATCH } from '../theme/index';
-import { buildBackup, estimateUsage, getMemories, getSetting, importBackup, setSetting, updateMemories } from '../db/index';
+import { buildBackup, estimateUsage, getMemories, getSetting, importBackup, setSetting, updateMemories, verifyBackup } from '../db/index';
 import { computeYear } from '../utils/timeUtils';
 import { formatBytes } from '../utils/photoUtils';
 import Sheet from '../components/Sheet';
@@ -13,7 +13,9 @@ export default function SettingsTab() {
   const [yearDraft, setYearDraft] = useState('');
   const [usage, setUsage] = useState<string | null>(null);
   const [lastBackup, setLastBackup] = useState<number | null>(null);
-  const [busy, setBusy] = useState<'export' | 'import' | null>(null);
+  const [busy, setBusy] = useState<'export' | 'import' | 'verify' | null>(null);
+  const [report, setReport] = useState<string[]>([]);
+  const fileAction = useRef<'import' | 'verify'>('import');
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -39,6 +41,8 @@ export default function SettingsTab() {
     setBusy('export');
     try {
       const { file, missingPhotos } = await buildBackup();
+      const check = await verifyBackup(file);
+      setReport([` 임시 저장소 복원 검증 완료: 기억 ${check.added}개`, ...check.issues]);
       const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
       const name = `kyeokyeoi-${new Date().toISOString().slice(0, 10)}.json`;
       const url = URL.createObjectURL(blob);
@@ -68,16 +72,18 @@ export default function SettingsTab() {
     e.target.value = '';
     if (!file) return;
     if (file.size > 300 * 1024 * 1024) { showToast('파일이 너무 커요 (300MB까지).'); return; }
-    setBusy('import');
+    setBusy(fileAction.current);
     try {
       const json = JSON.parse(await file.text());
-      const r = await importBackup(json);
+      const r = fileAction.current === 'verify' ? await verifyBackup(json) : await importBackup(json);
+      setReport([fileAction.current === 'verify' ? '임시 저장소 복원 검증 완료' : `기억 ${r.added}개 추가 · ${r.skipped}개 유지 · 충돌 ${r.conflicts}개 · 누락 사진 ${r.missingPhotos}개`, ...r.issues]);
       await refreshMemories();
       const parts = [`${r.added}개를 더했어요`];
       if (r.skipped) parts.push(`이미 있는 ${r.skipped}개는 그대로 뒀어요`);
       if (r.invalid) parts.push(`형식이 틀린 ${r.invalid}개는 건너뛰었어요`);
       showToast(parts.join('. ') + '.');
     } catch (err) {
+      setReport([err instanceof Error ? err.message : '불러오지 못했어요.']);
       showToast(err instanceof SyntaxError ? 'JSON 파일이 아니에요.' : err instanceof Error ? err.message : '불러오지 못했어요.');
     } finally {
       setBusy(null);
@@ -135,13 +141,15 @@ export default function SettingsTab() {
                 <small>{lastBackup ? `마지막 백업 ${new Date(lastBackup).toLocaleDateString('ko-KR')}` : '아직 백업한 적 없어요'}</small>
               </span>
             </button>
-            <button type="button" className="row" onClick={() => fileRef.current?.click()} disabled={busy !== null}>
+            <button type="button" className="row" onClick={() => { fileAction.current = 'import'; fileRef.current?.click(); }} disabled={busy !== null}>
               <span className="row__label">
                 {busy === 'import' ? '불러오는 중' : '백업 파일에서 불러오기'}
                 <small>지금 기록은 지우지 않고, 없는 추억만 더해요</small>
               </span>
             </button>
           </div>
+          <button type="button" className="row" disabled={busy !== null} onClick={() => { fileAction.current = 'verify'; fileRef.current?.click(); }}><span className="row__label">{busy === 'verify' ? '복원 검증 중' : '백업 파일 복원 시험'}<small>별도 임시 저장소에서 원본과 비교해요</small></span></button>
+          {report.length > 0 && <div className="backup-report" role="status"><h3>백업·복원 결과</h3><ul>{report.map((line, i) => <li key={i}>{line}</li>)}</ul></div>}
           <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={handleImport} />
           <p className="group__note">
             기록은 이 브라우저 안에만 있어요. 브라우저 데이터를 지우거나 기기를 바꾸면 사라지니 가끔 백업해 두세요.
