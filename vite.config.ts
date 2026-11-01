@@ -1,6 +1,6 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -16,7 +16,7 @@ export default defineConfig({
         start_url: '/kyeokyeoi/',
         scope: '/kyeokyeoi/',
         display: 'standalone',
-        
+
         theme_color: '#F5F7F3',
         background_color: '#F5F7F3',
         lang: 'ko',
@@ -61,4 +61,4 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
-})
+});

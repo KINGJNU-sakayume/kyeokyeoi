@@ -1,74 +1,39 @@
 # 켜켜이
 
-지나온 장소와 시간을 한 겹씩 쌓아 두는 개인 기록장이에요. 추억을 시군구 지도와 연도별 타임라인에 쌓아요. 기록은 이 브라우저 안(IndexedDB)에만 저장되고 어디로도 보내지 않아요.
+지나온 지역을 채우고, 시간·장소·주제를 따라 기억을 탐색하는 로컬 개인 아카이브입니다. 사진 없이 제목 하나로 기억을 남길 수 있습니다. 원문과 사진은 브라우저 IndexedDB에 저장되며 외부로 전송하지 않습니다.
 
 https://kingjnu-sakayume.github.io/kyeokyeoi/
 
-## 화면
+- **지도**: 독립 방문 확인이 기본입니다. 기억 분포 보기, 실제 경계 기반 점 레이어, 확대·이동·핀치, 전체 지역 검색·목록, 여러 곳 표시를 제공합니다. 모바일은 하단 패널, 데스크톱은 오른쪽 탐색 패널을 사용합니다.
+- **시간**: 인생 시기와 연도별 보기. 직접 시기를 만들고 기억을 고르거나 선택적 연도 범위를 지정합니다. 불확실한 시기를 강제로 정확한 날짜로 바꾸지 않습니다.
+- **기억**: 제목·본문 검색, 장소·시기·첫 경험·사진 필터, 작성순·경험 시점순 정렬, 텍스트 행 목록을 제공합니다.
+- **컬렉션**: 같은 기억을 여러 주제로 묶습니다. 직접 만든 컬렉션과 조건에 따른 자동 모음을 구분합니다.
+- **설정**: 별도 메뉴에서 테마 4종, 태어난 해, 백업 내보내기·합치기·임시 저장소 복원 시험에 접근합니다.
 
-- **지도**: 추억이 있는 시군구일수록 짙게 칠해요. 두 손가락이나 +/− 버튼으로 확대하고, 지역을 누르면 그곳의 추억이 나와요.
-- **타임라인**: 한 해가 한 층이에요. 날짜를 몰라도 ‘중학교 2학년 때’, ‘몇 살 때’로 적으면 태어난 해로 연도를 계산해 그 층에 넣어요. 때를 모르는 추억은 맨 아래 ‘언젠가’ 층에 모여요.
-- **설정**: 태어난 해, 색 테마 4가지, 백업 내보내기·불러오기.
+기존 `#/map`, `#/timeline`, `#/settings`, `#/memory/<id>` 주소와 브라우저 뒤로 가기를 유지합니다. `#/memories`, `#/collections`를 추가했습니다. 상세에서 같은 지역·연도·인생 시기·컬렉션·직접 연결한 기억으로 이동할 수 있습니다.
 
-주소가 화면마다 달라서(`#/map`, `#/timeline`, `#/memory/<id>`) 브라우저·안드로이드 뒤로 가기가 그대로 동작해요.
+## 개발과 검증
 
-## 실행
-
-Node 22가 필요해요.
+Node 22 이상을 사용합니다.
 
 ```sh
 npm ci
-npm run dev      # http://localhost:5173/kyeokyeoi/
+npm run dev
+npm test
 npm run lint
-npm run build    # docs/에 빌드 (GitHub Pages가 main의 /docs를 보여줘요)
+npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
-PR마다 `check.yml`이 린트와 빌드를 확인하고, main에 합쳐지면 `deploy.yml`이 다시 빌드해 `docs/`를 커밋해요. 그래서 PR에는 `docs/`를 넣지 않아도 돼요.
+빌드는 `dist/`에 생성합니다. main 배포 워크플로가 `scripts/copy-site.mjs`로 정적 파일을 `docs/`에 복사하며 문서는 보존합니다. PR에는 생성된 배포 산출물을 넣지 않습니다. 이미 설치한 Chromium을 사용할 때는 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`로 실행 파일 경로를 지정할 수 있습니다. Vitest는 이름을 분리한 fake IndexedDB, Playwright는 테스트 origin의 격리된 브라우저 컨텍스트만 사용합니다.
 
-## 데이터
+## 데이터와 복구
 
-IndexedDB `kkyeokyeoi-db` (철자는 첫 버전 그대로 둬요. 바꾸면 기존 기록을 못 찾아요.)
+DB는 기존 이름 `kkyeokyeoi-db`의 v3입니다. 기억·사진·설정은 그대로 두고 방문·컬렉션·인생 시기를 추가했습니다. 백업 형식 v3은 무결성 정보와 전체 아카이브를 보존하며 v2 백업도 읽습니다. [업그레이드·백업·다중 탭·복구 안내](docs/DATA_RECOVERY.md)를 확인하세요. 기본 화면이 열리지 않을 때는 같은 사이트의 `recovery.html`에서 원본을 보존할 수 있습니다.
 
-| 저장소 | 내용 |
-| --- | --- |
-| `memories` | 추억. 사진은 `photoIds`(순서대로 id)만 가져요 |
-| `photos` | `{ id, memoryId, blob }`. 사진은 긴 변 1600px 이하 WebP로 줄여서 넣어요 (WebP를 못 만드는 브라우저는 JPEG) |
-| `settings` | `birth_year`, `app_theme`, `onboarding_done`, `last_backup_at` |
+지도 데이터는 기존 southkorea-maps의 2013 KOSTAT 경계 251개입니다. 현재의 모든 행정구역 개편을 나타내지는 않습니다. 기존 코드는 유지하며 알 수 없는 코드는 저장된 라벨로 표시합니다. 경계 재생성은 `npm run regions -- <원본 경계 JSON>`으로 수행합니다.
 
-버전 1(사진을 base64로 추억 안에 넣던 형식)에서 열면 자동으로 버전 2로 옮겨요. 추억 하나에 사진은 5장까지예요.
+## 앞으로의 연결
 
-### 백업
-
-설정에서 내려받는 JSON 파일이에요.
-
-```json
-{ "app": "kyeokyeoi", "version": 2, "exportedAt": "…", "settings": { "birth_year": 1999 },
-  "memories": [ … ], "photos": { "<photoId>": "data:image/webp;base64,…" } }
-```
-
-불러오기는 합치기만 해요. 같은 id의 추억이 이미 있으면 그대로 두고, 없는 추억만 더해요. 형식이 틀린 추억과 이미지가 아닌 사진은 건너뛰어요.
-
-## 지도 데이터
-
-`public/regions.json`은 [southkorea-maps](https://github.com/southkorea/southkorea-maps)의 2013년 시군구 경계(kostat, simple)를 미리 SVG 경로로 바꿔 둔 파일이에요. 앱과 함께 배포돼서 오프라인에서도 열려요.
-
-```sh
-npm run regions -- <skorea_municipalities_geo_simple.json 경로>
-```
-
-저장된 추억이 지역 코드를 참조하므로 코드는 바꾸지 않고 이름·소속만 보정해요 (`scripts/build-regions.mjs`).
-
-- 군위군은 2023년 대구 편입을 반영해 ‘대구 군위군’으로 보여요.
-- 세종은 ‘세종특별자치시’ 하나로 보여요.
-- 2013년 이후의 다른 개편(청주·청원 통합, 부천 일반구 재설치 등)은 아직 반영하지 않았어요.
-
-## 파일
-
-| 경로 | 내용 |
-| --- | --- |
-| `src/App.tsx` | 시작, 주소 기반 화면 이동, 추억 시트·알림 |
-| `src/db/index.ts` | IndexedDB, 버전 1→2 이전, 백업 |
-| `src/map/` | 지도 데이터 읽기, 지도(확대·이동·탭) |
-| `src/views/` | 지도·타임라인·설정·상세·처음 시작 화면 |
-| `src/components/` | 추억 시트, 장소 고르기, 시트·대화상자 등 |
-| `src/index.css` | 색 테마와 모든 스타일 |
+[Life Hub 계약과 Achievement 연결 정책](docs/LIFEHUB_INTEGRATION.md)은 설계와 타입만 제공합니다. 서버·인증·Supabase 동기화나 존재하지 않는 API를 구현하지 않습니다.
