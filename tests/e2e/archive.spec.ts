@@ -369,3 +369,38 @@ test('version-independent recovery page exports a backup verified by the app', a
   await page.locator('input[type=file]').setInputFiles(path);
   await expect(page.locator('.backup-report')).toContainText('임시 저장소 복원 검증 완료');
 });
+test('background archive refresh preserves an editing draft and rejects a stale save', async ({
+  page,
+}) => {
+  await seed(page, 1);
+  await page.goto('./#/memory/old-0');
+  await page.getByRole('button', { name: '고치기', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: '추억 고치기' });
+  const memo = editor.getByRole('textbox', { name: '적어 두고 싶은 것' });
+  await expect(memo).toHaveValue('본문 내용 0');
+  await memo.fill('아직 저장하지 않은 입력');
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.open('kkyeokyeoi-db');
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('memories', 'readwrite');
+        const get = tx.objectStore('memories').get('old-0');
+        get.onsuccess = () =>
+          tx
+            .objectStore('memories')
+            .put({ ...get.result, memo: '다른 탭에서 저장한 본문', updatedAt: 999 });
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+      };
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.locator('.detail__memo')).toHaveText('다른 탭에서 저장한 본문');
+  await expect(memo).toHaveValue('아직 저장하지 않은 입력');
+  await editor.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('다른 탭에서 기억이 변경');
+  await expect(memo).toHaveValue('아직 저장하지 않은 입력');
+});

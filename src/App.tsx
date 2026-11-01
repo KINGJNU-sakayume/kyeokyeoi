@@ -196,6 +196,13 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   }, []);
 
+  const openAddSheet = useCallback(
+    (prefill?: SheetPrefill) => setSheet({ mode: 'add', prefill }),
+    [],
+  );
+  const openEditSheet = useCallback((id: string) => setSheet({ mode: 'edit', id }), []);
+  const closeSheet = useCallback(() => setSheet(null), []);
+
   const ctx: AppContextValue = useMemo(
     () => ({
       memories,
@@ -217,9 +224,9 @@ export default function App() {
       route,
       navigate,
       goBack,
-      openAddSheet: (prefill?: SheetPrefill) => setSheet({ mode: 'add', prefill }),
-      openEditSheet: (id: string) => setSheet({ mode: 'edit', id }),
-      closeSheet: () => setSheet(null),
+      openAddSheet,
+      openEditSheet,
+      closeSheet,
       showToast,
     }),
     [
@@ -238,6 +245,9 @@ export default function App() {
       route,
       navigate,
       goBack,
+      openAddSheet,
+      openEditSheet,
+      closeSheet,
       showToast,
     ],
   );
@@ -295,13 +305,13 @@ export default function App() {
           }}
         />
       ) : route.type === 'detail' ? (
-        <MemoryDetailView key={route.memoryId} memoryId={route.memoryId} />
+        <MemoryDetailView key={`detail:${route.memoryId}`} memoryId={route.memoryId} />
       ) : (
         <MainLayout tab={route.type === 'main' ? route.tab : 'map'} />
       )}
       {sheet && (
         <AddMemorySheet
-          key={sheet.mode === 'edit' ? sheet.id : 'new'}
+          key={sheet.mode === 'edit' ? `edit:${sheet.id}` : 'new'}
           editId={sheet.mode === 'edit' ? sheet.id : null}
           prefill={sheet.mode === 'add' ? sheet.prefill : undefined}
         />
