@@ -26,14 +26,14 @@ export default function MemoryCard({ memory, onClick, hideRegion }: MemoryCardPr
           <p className="entry__meta">
             {region && <span>{region}</span>}
             {time && <span>{time}</span>}
-            {memory.emotions.length > 0 && <span aria-label="감정">{memory.emotions.join('')}</span>}
+            {memory.emotions.length > 0 && (
+              <span aria-label="감정">{memory.emotions.join('')}</span>
+            )}
           </p>
         )}
         {memory.memo && <p className="entry__memo">{memory.memo}</p>}
       </div>
-      {memory.photoIds.length > 0 && (
-        thumb ? <img className="entry__thumb" src={thumb} alt="" /> : <span className="entry__thumb" />
-      )}
+      {thumb && <img className="entry__thumb" src={thumb} alt="" />}
     </button>
   );
 }

@@ -4,7 +4,16 @@ import { IconClose } from './icons';
 
 function Photo({ id, alt }: { id: string; alt: string }) {
   const url = usePhotoURL(id);
-  return url ? <img src={url} alt={alt} /> : <img alt="" />;
+  return url ? <img src={url} alt={alt} /> : <p>사진 데이터를 찾지 못했어요.</p>;
+}
+
+function PhotoButton({ id, index, onClick }: { id: string; index: number; onClick: () => void }) {
+  const url = usePhotoURL(id);
+  return url ? (
+    <button type="button" onClick={onClick} aria-label={`사진 ${index + 1} 크게 보기`}>
+      <img src={url} alt={`사진 ${index + 1}`} />
+    </button>
+  ) : null;
 }
 
 /** 상세 화면의 사진 줄. 누르면 전체 화면으로 보고 좌우로 넘겨요. */
@@ -16,8 +25,9 @@ export default function PhotoGallery({ photoIds }: { photoIds: string[] }) {
     if (open === null) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(null);
-      if (e.key === 'ArrowRight') setOpen(i => (i === null ? i : (i + 1) % photoIds.length));
-      if (e.key === 'ArrowLeft') setOpen(i => (i === null ? i : (i - 1 + photoIds.length) % photoIds.length));
+      if (e.key === 'ArrowRight') setOpen((i) => (i === null ? i : (i + 1) % photoIds.length));
+      if (e.key === 'ArrowLeft')
+        setOpen((i) => (i === null ? i : (i - 1 + photoIds.length) % photoIds.length));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -27,11 +37,13 @@ export default function PhotoGallery({ photoIds }: { photoIds: string[] }) {
 
   return (
     <>
-      <div className={photoIds.length === 1 ? 'detail__photos detail__photos--single' : 'detail__photos'}>
+      <div
+        className={
+          photoIds.length === 1 ? 'detail__photos detail__photos--single' : 'detail__photos'
+        }
+      >
         {photoIds.map((id, i) => (
-          <button key={id} type="button" onClick={() => setOpen(i)} aria-label={`사진 ${i + 1} 크게 보기`}>
-            <Photo id={id} alt={`사진 ${i + 1}`} />
-          </button>
+          <PhotoButton key={id} id={id} index={i} onClick={() => setOpen(i)} />
         ))}
       </div>
 
@@ -41,18 +53,31 @@ export default function PhotoGallery({ photoIds }: { photoIds: string[] }) {
           role="dialog"
           aria-modal="true"
           aria-label="사진 보기"
-          onPointerDown={e => { startX.current = e.clientX; }}
-          onPointerUp={e => {
+          onPointerDown={(e) => {
+            startX.current = e.clientX;
+          }}
+          onPointerUp={(e) => {
             if (startX.current === null) return;
             const dx = e.clientX - startX.current;
             startX.current = null;
             if (Math.abs(dx) < 50 || photoIds.length < 2) return;
-            setOpen(i => (i === null ? i : (i + (dx < 0 ? 1 : -1) + photoIds.length) % photoIds.length));
+            setOpen((i) =>
+              i === null ? i : (i + (dx < 0 ? 1 : -1) + photoIds.length) % photoIds.length,
+            );
           }}
         >
           <div className="lightbox__bar">
-            <span>{open + 1} / {photoIds.length}</span>
-            <button type="button" className="icon-btn" onClick={() => setOpen(null)} aria-label="닫기"><IconClose /></button>
+            <span>
+              {open + 1} / {photoIds.length}
+            </span>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setOpen(null)}
+              aria-label="닫기"
+            >
+              <IconClose />
+            </button>
           </div>
           <div className="lightbox__img">
             <Photo id={photoIds[open]} alt={`사진 ${open + 1}`} />

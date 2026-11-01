@@ -1,5 +1,12 @@
 import { useMemo, useState } from 'react';
-import { PROVINCES, provinceOf, regionLabel, regionsInProvince, unionBox, useRegions } from '../map/geodata';
+import {
+  PROVINCES,
+  provinceOf,
+  regionLabel,
+  regionsInProvince,
+  unionBox,
+  useRegions,
+} from '../map/geodata';
 import KoreaMap from '../map/KoreaMap';
 import Sheet from './Sheet';
 
@@ -22,9 +29,12 @@ export default function RegionPicker({ onSelect, onClose, currentCode }: RegionP
     if (!set) return [];
     if (q) {
       return set.regions
-        .filter(r => (provinceOf(r)?.name + r.name).replace(/\s+/g, '').includes(q) || regionLabel(r).replace(/\s+/g, '').includes(q))
-        .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
-        .slice(0, 40);
+        .filter(
+          (r) =>
+            (provinceOf(r)?.name + r.name).replace(/\s+/g, '').includes(q) ||
+            regionLabel(r).replace(/\s+/g, '').includes(q),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     }
     return regionsInProvince(set, prov);
   }, [set, q, prov]);
@@ -37,7 +47,8 @@ export default function RegionPicker({ onSelect, onClose, currentCode }: RegionP
   }, [set, selected, prov, q, list]);
   const fills = useMemo(() => {
     const m = new Map<string, string>();
-    if (set && !selected) (q ? list : regionsInProvince(set, prov)).forEach(r => m.set(r.code, 'var(--heat-1)'));
+    if (set && !selected)
+      (q ? list : regionsInProvince(set, prov)).forEach((r) => m.set(r.code, 'var(--heat-1)'));
     if (selected) m.set(selected.code, 'var(--heat-3)');
     return m;
   }, [set, selected, prov, q, list]);
@@ -53,9 +64,17 @@ export default function RegionPicker({ onSelect, onClose, currentCode }: RegionP
       label="장소 고르기"
       size="tall"
       onClose={onClose}
-      left={<button type="button" className="text-btn text-btn--muted" onClick={onClose}>취소</button>}
+      left={
+        <button type="button" className="text-btn text-btn--muted" onClick={onClose}>
+          취소
+        </button>
+      }
       title="장소"
-      right={<button type="button" className="text-btn" onClick={confirm} disabled={!selected}>고르기</button>}
+      right={
+        <button type="button" className="text-btn" onClick={confirm} disabled={!selected}>
+          고르기
+        </button>
+      }
     >
       <div className="picker-map" aria-hidden="true">
         <KoreaMap interactive={false} fills={fills} selectedCode={code} focusBox={focus} />
@@ -67,31 +86,46 @@ export default function RegionPicker({ onSelect, onClose, currentCode }: RegionP
           placeholder="시군구 이름으로 찾기"
           aria-label="시군구 이름으로 찾기"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={(e) => setQuery(e.target.value)}
         />
       </div>
       {!q && (
         <div className="province-row" role="group" aria-label="시·도">
-          {PROVINCES.map(p => (
-            <button key={p.code} type="button" className="chip" aria-pressed={prov === p.code}
-              onClick={() => { setProv(p.code); setCode(null); }}>
+          {PROVINCES.map((p) => (
+            <button
+              key={p.code}
+              type="button"
+              className="chip"
+              aria-pressed={prov === p.code}
+              onClick={() => {
+                setProv(p.code);
+                setCode(null);
+              }}
+            >
               {p.short}
             </button>
           ))}
         </div>
       )}
       <div className="sheet__body">
-        {set === null && <p className="field__hint">지도 데이터를 불러오지 못했어요. 인터넷에 연결된 뒤 다시 열어 주세요.</p>}
+        {set === null && (
+          <p className="field__hint">
+            지도 데이터를 불러오지 못했어요. 인터넷에 연결된 뒤 다시 열어 주세요.
+          </p>
+        )}
         {q && list.length === 0 && <p className="field__hint">‘{query}’에 맞는 시군구가 없어요.</p>}
         <div className="place-list">
-          {list.map(r => (
+          {list.map((r) => (
             <button
               key={r.code}
               type="button"
               className="place"
               aria-pressed={code === r.code}
               onClick={() => setCode(r.code)}
-              onDoubleClick={() => { onSelect(r.code, regionLabel(r)); onClose(); }}
+              onDoubleClick={() => {
+                onSelect(r.code, regionLabel(r));
+                onClose();
+              }}
             >
               {r.name}
               {q && <small>{provinceOf(r)?.short}</small>}
