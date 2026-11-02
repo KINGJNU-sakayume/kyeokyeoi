@@ -1,0 +1,10 @@
+{
+  "client_id": "https://kingjnu-sakayume.github.io/kyeokyeoi/lifehub-client.json",
+  "client_name": "켜켜이",
+  "client_uri": "https://kingjnu-sakayume.github.io/kyeokyeoi/",
+  "redirect_uris": ["https://kingjnu-sakayume.github.io/kyeokyeoi/"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "web"
+}
