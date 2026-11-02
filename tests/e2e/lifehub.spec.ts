@@ -86,10 +86,10 @@ test('connected: proposals become a memory and a visit only after review, and re
   await expect(add.getByRole('textbox').first()).toHaveValue('가상의 콘서트');
   // Claude's resolution is pre-filled and visible for review: region, full date, artist.
   await expect(add.getByText('경기 고양시 일산서구')).toBeVisible();
-  await expect(add.getByLabel('연도')).toHaveValue('2026');
-  await expect(add.getByLabel('월')).toHaveValue('10');
-  await expect(add.getByLabel('일')).toHaveValue('8');
-  await expect(add.getByLabel('가수')).toHaveValue('Synthetic Artist');
+  await expect(add.getByLabel('연도', { exact: true })).toHaveValue('2026');
+  await expect(add.getByLabel('월', { exact: true })).toHaveValue('10');
+  await expect(add.getByLabel('일', { exact: true })).toHaveValue('8');
+  await expect(add.getByLabel('가수', { exact: true })).toHaveValue('Synthetic Artist');
   await add.getByRole('button', { name: '저장', exact: true }).click();
   await expect.poll(() => posts.filter((p) => p.path.endsWith('/receipts')).length).toBe(1);
   expect(posts[0].body.key).toBe(MEMORY_KEY);
