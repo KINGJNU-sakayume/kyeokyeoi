@@ -75,9 +75,19 @@ export interface VisitProposal {
   visited_on?: string;
   note?: string;
 }
-export type Proposal =
-  | { key: string; source: string; type: 'memory'; payload: MemoryProposal }
-  | { key: string; source: string; type: 'visit'; payload: VisitProposal };
+/** Life Hub state of a proposal: `approved` = the owner approved it in a Claude card (켜켜이 has not saved it yet). */
+export interface HubState {
+  status: 'pending' | 'approved';
+  /** Hub revision; owner edits in a Claude card raise it. */
+  revision: number;
+  /** Life Hub asks 켜켜이 for a last check before saving. */
+  needsAppReview: boolean;
+}
+export type Proposal = HubState &
+  (
+    | { key: string; source: string; type: 'memory'; payload: MemoryProposal }
+    | { key: string; source: string; type: 'visit'; payload: VisitProposal }
+  );
 
 const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const only = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).every((k) => keys.includes(k));
@@ -90,12 +100,22 @@ export const validDate = (v: string) => {
   const d = new Date(v);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 };
-const KEY = /^(claude|chatgpt|manual):[A-Za-z0-9_.:-]{8,128}$/;
+const KEY = /^(claude|chatgpt|codex|manual):[A-Za-z0-9_.:-]{8,128}$/;
 
-/** Validates one item from the hub. Returns null for anything that does not match the contract. */
+/**
+ * Validates one item from the hub. Returns null for anything that does not match the contract.
+ * The owner's edit from a Claude card (`final_candidate`) wins over the original proposal.
+ */
 export function parseProposal(item: unknown): Proposal | null {
-  if (!obj(item) || typeof item.key !== 'string' || !KEY.test(item.key) || !obj(item.candidate)) return null;
-  const c = item.candidate;
+  if (!obj(item) || typeof item.key !== 'string' || !KEY.test(item.key)) return null;
+  const c = item.final_candidate ?? item.candidate;
+  if (!obj(c)) return null;
+  const state: HubState = {
+    status: item.status === 'approved' ? 'approved' : 'pending',
+    revision: typeof item.revision === 'number' && Number.isSafeInteger(item.revision) && item.revision >= 0 ? item.revision : 0,
+    needsAppReview: item.needs_app_review === true,
+  };
+  if (item.status !== undefined && item.status !== 'pending' && item.status !== 'approved') return null;
   if (c.schema_version !== 1 || typeof c.source !== 'string' || !obj(c.payload) || `${c.source}:${c.idempotency_key}` !== item.key)
     return null;
   const p = c.payload;
@@ -109,14 +129,14 @@ export function parseProposal(item: unknown): Proposal | null {
         p.emotions.some((e) => typeof e !== 'string' || !EMOTION_LABELS.includes(e)))))
       return null;
     if (p.day !== undefined && !validDate(`${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`)) return null;
-    return { key: item.key, source: c.source, type: 'memory', payload: p as unknown as MemoryProposal };
+    return { ...state, key: item.key, source: c.source, type: 'memory', payload: p as unknown as MemoryProposal };
   }
   if (c.candidate_type === 'visit') {
     if (!only(p, ['place_text', 'region_hint', 'visited_on', 'note']) || !text(p.place_text, 100) || !optText(p.note, 500) ||
       !optText(p.region_hint, 60) ||
       (p.visited_on !== undefined && (typeof p.visited_on !== 'string' || !validDate(p.visited_on))))
       return null;
-    return { key: item.key, source: c.source, type: 'visit', payload: p as unknown as VisitProposal };
+    return { ...state, key: item.key, source: c.source, type: 'visit', payload: p as unknown as VisitProposal };
   }
   return null;
 }
@@ -164,6 +184,8 @@ const PENDING_AUTH_KEY = 'kyeokyeoi.lifehub.pending-auth.v1';
 const OUTCOMES_KEY = 'kyeokyeoi.lifehub.outcomes.v1';
 const REJECTIONS_KEY = 'kyeokyeoi.lifehub.rejections.v1';
 const VISIT_RECEIPTS_KEY = 'kyeokyeoi.lifehub.visit-receipts.v1';
+const AUTO_APPLY_KEY = 'kyeokyeoi.lifehub.auto-apply.v1';
+const REGION_REFS_KEY = 'kyeokyeoi.lifehub.region-refs.v1';
 const AUTH_MAX_AGE_MS = 10 * 60 * 1000;
 interface Tokens {
   access_token: string;
@@ -268,7 +290,7 @@ async function accessToken(deps: Deps, force = false): Promise<string> {
   return (await tokenRequest(deps, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token })).access_token;
 }
 
-async function api(deps: Deps, method: 'GET' | 'POST', path: string, body?: unknown): Promise<Response> {
+async function api(deps: Deps, method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<Response> {
   const send = async (token: string) => {
     try {
       return await deps.fetch(API + path, {
@@ -327,6 +349,36 @@ export function rememberVisitReceipt(key: string, visitId: string, deps: Pick<De
   deps.storage.setItem(VISIT_RECEIPTS_KEY, JSON.stringify(map));
 }
 
+/** 「Claude에서 승인된 항목 자동 반영」: on unless the owner turned it off on this device. */
+export function autoApplyEnabled(deps: Pick<Deps, 'storage'>): boolean {
+  return deps.storage.getItem(AUTO_APPLY_KEY) !== 'off';
+}
+export function setAutoApply(deps: Pick<Deps, 'storage'>, on: boolean): void {
+  if (on) deps.storage.removeItem(AUTO_APPLY_KEY);
+  else deps.storage.setItem(AUTO_APPLY_KEY, 'off');
+}
+
+/* ---------- region reference list for Claude card pickers ---------- */
+
+/** Bump when public/regions.json changes, so Life Hub gets the new list (a newer revision wins there). */
+export const REGIONS_REF_REVISION = 1;
+export interface RegionRef {
+  id: string;
+  label: string;
+  group: string;
+}
+/**
+ * The 시군구 list 켜켜이 shares with Life Hub so a Claude card can offer the same choices. Public, fixed
+ * data only (codes and names) — never visits or memories. Sent once per revision per device.
+ */
+export async function uploadRegionRefs(items: RegionRef[], deps: Deps): Promise<boolean> {
+  if (deps.storage.getItem(REGION_REFS_KEY) === String(REGIONS_REF_REVISION) || !items.length) return false;
+  const response = await api(deps, 'PUT', '/refs/regions', { revision: REGIONS_REF_REVISION, items });
+  if (!response.ok) return false;
+  deps.storage.setItem(REGION_REFS_KEY, String(REGIONS_REF_REVISION));
+  return true;
+}
+
 export interface Receipt {
   key: string;
   entity_type: 'memory' | 'visit';
@@ -352,7 +404,10 @@ export interface SyncResult {
   conflicts: number;
   waiting: number;
 }
-/** Send decisions first, then fetch what is still pending (minus anything decided here). */
+/**
+ * Send decisions first, then fetch what is still open — pending, or approved in a Claude card — minus
+ * anything decided here. Nothing is saved by this function.
+ */
 export async function sync(memories: Memory[], visits: RegionVisit[], deps: Deps): Promise<SyncResult> {
   const done = outcomes(deps);
   const result: SyncResult = { proposals: [], receiptsSent: 0, rejectionsSent: 0, conflicts: 0, waiting: 0 };
@@ -378,7 +433,7 @@ export async function sync(memories: Memory[], visits: RegionVisit[], deps: Deps
     if (done[key]) continue;
     if (record(key, await api(deps, 'POST', '/rejections', { key }), 'rejected')) result.rejectionsSent++;
   }
-  const response = await api(deps, 'GET', '/candidates?status=pending&limit=100');
+  const response = await api(deps, 'GET', '/candidates?status=open&limit=100');
   if (!response.ok) throw new LifeHubError('server', `Life Hub 제안을 가져오지 못했어요 (${response.status})`);
   const body = (await response.json().catch(() => null)) as { candidates?: unknown } | null;
   if (!body || !Array.isArray(body.candidates)) throw new LifeHubError('server', 'Life Hub 응답 형식이 올바르지 않아요.');

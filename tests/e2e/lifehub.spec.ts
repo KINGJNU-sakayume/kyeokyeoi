@@ -92,8 +92,9 @@ test('connected: proposals become a memory and a visit only after review, and re
   await expect(add.getByLabel('가수', { exact: true })).toHaveValue('Synthetic Artist');
   await add.getByRole('button', { name: '저장', exact: true }).click();
   await expect.poll(() => posts.filter((p) => p.path.endsWith('/receipts')).length).toBe(1);
-  expect(posts[0].body.key).toBe(MEMORY_KEY);
-  expect(posts[0].body.entity_type).toBe('memory');
+  const memoryReceipt = posts.filter((p) => p.path.endsWith('/receipts'))[0].body;
+  expect(memoryReceipt.key).toBe(MEMORY_KEY);
+  expect(memoryReceipt.entity_type).toBe('memory');
 
   // A memory with a place did not mark any region visited.
   await page.goto('./#/map');
@@ -118,5 +119,75 @@ test('connected: proposals become a memory and a visit only after review, and re
 
   await page.goto('./#/map');
   await expect(page.getByText('1곳', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('opening the app saves what the owner approved in a Claude card, shares the 시군구 list, and leaves the rest', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const receipts: Array<Record<string, string>> = [];
+  const refs: Array<{ revision: number; items: Array<{ id: string; label: string; group?: string }> }> = [];
+  const UNSURE_KEY = 'claude:mcp-' + 'c'.repeat(40);
+  const approved = (c: ReturnType<typeof candidate>, extra: Record<string, unknown> = {}) =>
+    ({ ...c, status: 'approved', revision: 1, final_candidate: null, needs_app_review: false, ...extra });
+  const all = [
+    approved(candidate(MEMORY_KEY, 'memory', { title: '가상의 카드 추억', year: 2026, month: 10, day: 8, region_hint: '경기 고양시 일산서구', emotions: ['설렘'] })),
+    approved(candidate(VISIT_KEY, 'visit', { place_text: '가상 해변' }), {
+      final_candidate: { ...candidate(VISIT_KEY, 'visit', { place_text: '가상 해변', region_hint: '강원 강릉시', visited_on: '2026-10-12' }).candidate },
+    }),
+    // The owner chose 「켜켜이에서 정할게요」: it waits here.
+    approved(candidate(UNSURE_KEY, 'visit', { place_text: '가상 어딘가' }), { needs_app_review: true }),
+  ];
+  const decided = new Set<string>();
+  await page.route(HUB + '/**', async (route) => {
+    const req = route.request();
+    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, PUT', 'Content-Type': 'application/json' };
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    const url = new URL(req.url());
+    if (url.pathname === '/kyeokyeoi/v1/candidates') {
+      expect(url.searchParams.get('status')).toBe('open');
+      return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ candidates: all.filter((c) => !decided.has(c.key)) }) });
+    }
+    if (url.pathname === '/kyeokyeoi/v1/refs/regions' && req.method() === 'PUT') {
+      refs.push(JSON.parse(req.postData() || '{}'));
+      return route.fulfill({ status: 200, headers: cors, body: '{}' });
+    }
+    const body = JSON.parse(req.postData() || '{}') as Record<string, string>;
+    if (url.pathname.endsWith('/receipts')) { receipts.push(body); decided.add(body.key); }
+    return route.fulfill({ status: 200, headers: cors, body: '{}' });
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('kyeokyeoi.lifehub.tokens.v1', JSON.stringify({
+      access_token: 'at-synthetic', refresh_token: 'rt-synthetic', access_expires_at: Date.now() + 3_600_000,
+    }));
+  });
+  await onboarded(page);
+  await page.goto('./#/settings');
+
+  await expect.poll(() => receipts.length).toBe(2);
+  expect(receipts.map((r) => [r.key, r.entity_type]).sort()).toEqual([[MEMORY_KEY, 'memory'], [VISIT_KEY, 'visit']]);
+  await expect(page.getByText(/Claude에서 승인한 기록 2개를 켜켜이에 저장했어요/)).toBeVisible();
+
+  expect(refs).toHaveLength(1);
+  expect(refs[0].revision).toBe(1);
+  expect(refs[0].items.length).toBeGreaterThan(200);
+  expect(refs[0].items).toContainEqual({ id: expect.any(String), label: '경기 고양시 일산서구', group: '경기' });
+
+  // Only the one that needs a decision is left.
+  const proposalsRow = page.getByRole('button', { name: /Claude가 제안한 기록/ });
+  await expect(proposalsRow).toContainText('검토할 제안 1개');
+  await proposalsRow.click();
+  const sheet = page.getByRole('dialog', { name: 'Life Hub 제안' });
+  await expect(sheet.getByText('가상 어딘가')).toBeVisible();
+  await expect(sheet.getByText(/Claude에서 승인함/)).toBeVisible();
+  await sheet.getByRole('button', { name: '닫기' }).click();
+
+  await expect(page.getByRole('switch', { name: /Claude에서 승인된 항목 자동 반영/ })).toHaveAttribute('aria-checked', 'true');
+
+  // Reopening does not save anything twice and does not send the list again.
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Claude가 제안한 기록/ })).toContainText('검토할 제안 1개');
+  expect(receipts).toHaveLength(2);
+  expect(refs).toHaveLength(1);
   expect(errors).toEqual([]);
 });
