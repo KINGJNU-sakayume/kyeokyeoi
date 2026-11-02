@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../AppContext';
-import { getMemories, getRegionVisits, repository } from '../db/index';
+import { getMemories, getRegionVisits, newId, repository } from '../db/index';
 import {
-  APP_URL, beginConnect, browserDeps, completeConnect, connectAvailable, disconnect, isAuthCallback, isConnected,
-  LifeHubError, memoryPrefill, rejectLocally, rememberVisitReceipt, sourceFor, sync, validDate,
+  APP_URL, autoApplyEnabled, beginConnect, browserDeps, completeConnect, connectAvailable, disconnect, isAuthCallback,
+  isConnected, LifeHubError, memoryPrefill, rejectLocally, rememberVisitReceipt, setAutoApply, sourceFor, sync,
+  uploadRegionRefs, validDate,
 } from '../integration/lifehub';
 import type { Proposal } from '../integration/lifehub';
+import { planAutoApply, regionRefs, type RegionEntry } from '../integration/lifehubApply';
 import { requestLifeHubSync, setLifeHubState, SYNC_EVENT, useLifeHub, getLifeHubState } from '../integration/lifehubStore';
-import { PROVINCES, regionLabel, useRegions } from '../map/geodata';
+import { loadRegions, PROVINCES, provinceOf, regionLabel, useRegions } from '../map/geodata';
 import { matchRegion } from '../map/regionMatch';
 import Sheet from './Sheet';
 import RegionPicker from './RegionPicker';
@@ -16,12 +18,52 @@ import ConfirmDialog from './ConfirmDialog';
 // The one-time code exchange must not run twice (React StrictMode runs effects twice in development).
 let callbackOnce: Promise<void> | null = null;
 
+/** Region labels exactly as 켜켜이 shows them (and shares with Life Hub for the card picker). */
+async function regionEntries(): Promise<{ entries: RegionEntry[]; groupOf: (code: string) => string } | null> {
+  const set = await loadRegions();
+  if (!set) return null;
+  return {
+    entries: set.regions.map((r) => ({ code: r.code, label: regionLabel(r) })),
+    groupOf: (code) => {
+      const r = set.byCode.get(code);
+      return (r && provinceOf(r)?.short) || '기타';
+    },
+  };
+}
+
+/**
+ * Saves proposals the owner already approved in a Claude card, when nothing is left to decide.
+ * Returns how many were saved; a failure leaves the proposal for the owner.
+ */
+async function applyApproved(proposals: Proposal[], regions: RegionEntry[]): Promise<number> {
+  if (!autoApplyEnabled(browserDeps())) return 0;
+  const birthYear = (await repository.getSetting<number>('birth_year')) ?? null;
+  let saved = 0;
+  for (const p of proposals) {
+    const plan = planAutoApply(p, regions, birthYear);
+    if (!plan) continue;
+    try {
+      if (plan.kind === 'memory') {
+        const now = Date.now();
+        await repository.saveMemory({ ...plan.memory, id: newId(), createdAt: now, updatedAt: now, source: sourceFor(plan.key) });
+      } else {
+        const visit = await repository.recordVisitFromSource(plan.region, plan.visitedOn, sourceFor(plan.key));
+        rememberVisitReceipt(plan.key, visit.id, browserDeps());
+      }
+      saved++;
+    } catch {
+      /* e.g. already saved from this proposal in another tab: the next sync sends that receipt */
+    }
+  }
+  return saved;
+}
+
 /**
  * Runs in the background while the app is open: finishes a Life Hub sign-in that just returned,
  * then sends pending receipts/rejections and refreshes proposals on start and on request.
  */
 export function LifeHubAgent() {
-  const { showToast } = useApp();
+  const { showToast, refreshArchive } = useApp();
   const run = useCallback(
     async (quiet: boolean) => {
       if (!isConnected(browserDeps()) || getLifeHubState().syncing) return;
@@ -30,9 +72,23 @@ export function LifeHubAgent() {
         // Read the archive directly so a record saved a moment ago is always included.
         const [memories, visits] = await Promise.all([getMemories(), getRegionVisits()]);
         const before = getLifeHubState().proposals.length;
-        const r = await sync(memories, visits, browserDeps());
+        let r = await sync(memories, visits, browserDeps());
+        let saved = 0;
+        const regions = await regionEntries();
+        if (regions) {
+          await uploadRegionRefs(regionRefs(regions.entries, regions.groupOf), browserDeps()).catch(() => false);
+          saved = await applyApproved(r.proposals, regions.entries);
+          if (saved) {
+            await refreshArchive();
+            // Send the receipts right away; what was saved drops out of the proposals.
+            const [m2, v2] = await Promise.all([getMemories(), getRegionVisits()]);
+            r = await sync(m2, v2, browserDeps());
+          }
+        }
         setLifeHubState({ proposals: r.proposals, conflicts: r.conflicts, lastSyncedAt: Date.now(), connected: true });
-        if (!quiet) showToast(r.proposals.length ? `Life Hub 제안 ${r.proposals.length}개가 있어요.` : '새 제안이 없어요.');
+        if (saved)
+          showToast(`Claude에서 승인한 기록 ${saved}개를 켜켜이에 저장했어요.` + (r.proposals.length ? ` 확인할 제안 ${r.proposals.length}개는 설정에 있어요.` : ''));
+        else if (!quiet) showToast(r.proposals.length ? `Life Hub 제안 ${r.proposals.length}개가 있어요.` : '새 제안이 없어요.');
         else if (r.proposals.length > before) showToast(`Life Hub에서 제안 ${r.proposals.length}개가 왔어요. 설정에서 볼 수 있어요.`);
       } catch (e) {
         if (e instanceof LifeHubError && e.kind === 'not_connected') setLifeHubState({ connected: false, proposals: [] });
@@ -42,7 +98,7 @@ export function LifeHubAgent() {
         setLifeHubState({ syncing: false });
       }
     },
-    [showToast],
+    [showToast, refreshArchive],
   );
 
   useEffect(() => {
@@ -74,6 +130,7 @@ export function LifeHubSection() {
   const { showToast } = useApp();
   const [open, setOpen] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [autoApply, setAutoApplyState] = useState(() => autoApplyEnabled(browserDeps()));
   const canConnect = connectAvailable(location);
 
   async function connect() {
@@ -107,6 +164,24 @@ export function LifeHubSection() {
                 </small>
               </span>
             </button>
+            <div className="switch-row">
+              <span className="switch-row__text" id="lifehub-auto-label">
+                Claude에서 승인된 항목 자동 반영
+                <small>Claude 대화 카드에서 승인한 추억·방문을 앱을 열 때 저장해요. 시군구가 정해지지 않은 건 여기서 확인해요.</small>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                className="switch"
+                aria-checked={autoApply}
+                aria-labelledby="lifehub-auto-label"
+                onClick={() => {
+                  setAutoApply(browserDeps(), !autoApply);
+                  setAutoApplyState(!autoApply);
+                  if (!autoApply) requestLifeHubSync();
+                }}
+              />
+            </div>
             <button type="button" className="row" onClick={() => setConfirmOff(true)}>
               <span className="row__label">
                 연결 해제
@@ -235,7 +310,10 @@ function ProposalsSheet({ onClose }: { onClose: () => void }) {
           {hub.proposals.length === 0 && <p className="lifehub__empty">검토할 제안이 없어요.</p>}
           {hub.proposals.map((p) => (
             <article className="lifehub__card" key={p.key} aria-label={p.type === 'memory' ? p.payload.title : p.payload.place_text}>
-              <span className="lifehub__type">{p.type === 'memory' ? '추억' : '방문'} · {p.source}</span>
+              <span className="lifehub__type">
+                {p.type === 'memory' ? '추억' : '방문'} · {p.source}
+                {p.status === 'approved' && ' · Claude에서 승인함'}
+              </span>
               {p.type === 'memory' ? (
                 <>
                   <strong>{p.payload.title}</strong>

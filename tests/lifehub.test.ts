@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {
   APP_URL, CLIENT_ID, LIFEHUB_ORIGIN, RESOURCE, beginConnect, completeConnect, connectAvailable, isAuthCallback,
   isConnected, memoryPrefill, outcomes, parseProposal, receipts, rejectLocally, rememberVisitReceipt, sourceFor, sync,
-  LifeHubError,
+  LifeHubError, autoApplyEnabled, setAutoApply, uploadRegionRefs, REGIONS_REF_REVISION,
 } from '../src/integration/lifehub';
+import { exactRegion, planAutoApply, regionRefs } from '../src/integration/lifehubApply';
 import type { Deps } from '../src/integration/lifehub';
 import type { Memory, RegionVisit } from '../src/db/model';
 
@@ -172,5 +173,114 @@ describe('sync', () => {
     const other = { ...memory('m2'), source: { service: 'achievement', originalId: 'x', revision: 1, certainty: 'confirmed' as const } };
     await sync([memory('m1'), other], [], d);
     assert.equal(hub.posts.length, 0);
+  });
+});
+
+describe('Claude card approvals (P4 stage 2)', () => {
+  const regions = [
+    { code: '31101', label: '경기 고양시 덕양구' },
+    { code: '31103', label: '경기 고양시 일산서구' },
+    { code: '11010', label: '서울 종로구' },
+  ];
+  const approved = (key: string, type: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    ({ ...item(key, type, payload), status: 'approved', revision: 1, final_candidate: null, needs_app_review: false, ...extra });
+
+  it('uses the owner edit, reads the hub state, accepts codex and asks for open proposals', async () => {
+    const edited = { ...item(K1, 'visit', { place_text: '가상 공원', region_hint: '경기 고양시 일산서구' }).candidate };
+    const p = parseProposal(approved(K1, 'visit', { place_text: '가상 공원' }, { revision: 2, final_candidate: edited }))!;
+    assert.equal(p.status, 'approved');
+    assert.equal(p.revision, 2);
+    assert.equal(p.type === 'visit' && p.payload.region_hint, '경기 고양시 일산서구');
+    assert.equal(parseProposal({ ...item(K1, 'memory', { title: 'x' }), status: 'rejected' }), null);
+    const codexKey = 'codex:mcp-' + 'c'.repeat(40);
+    const codex = item(codexKey, 'memory', { title: '가상 코덱스' });
+    codex.candidate.source = 'codex';
+    codex.candidate.idempotency_key = codexKey.slice(6);
+    assert.ok(parseProposal(codex));
+
+    const asked: string[] = [];
+    const { f } = fakeHub([approved(K2, 'memory', { title: '가상 추억' })]);
+    const spy = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/candidates')) asked.push(url.searchParams.get('status') ?? '');
+      return f(input, init);
+    }) as typeof fetch;
+    const d = await connected(spy);
+    const r = await sync([], [], d);
+    assert.deepEqual(asked, ['open']);
+    assert.equal(r.proposals[0].status, 'approved');
+  });
+
+  it('plans an automatic save only when nothing is left to decide', () => {
+    const plan = (raw: unknown, birth: number | null = null) => planAutoApply(parseProposal(raw)!, regions, birth);
+    const visit = plan(approved(K1, 'visit', { place_text: '가상 공원', region_hint: '경기 고양시 일산서구', visited_on: '2026-10-08' }));
+    assert.deepEqual(visit, { kind: 'visit', key: K1, region: regions[1], visitedOn: '2026-10-08' });
+    // Not an exact label (e.g. only 고양시): 켜켜이 asks.
+    assert.equal(plan(approved(K1, 'visit', { place_text: '가상 공원', region_hint: '고양시' })), null);
+    assert.equal(plan(approved(K1, 'visit', { place_text: '가상 공원' })), null);
+    // Pending, or a last check asked: never automatic.
+    assert.equal(plan(item(K1, 'visit', { place_text: '가상 공원', region_hint: '서울 종로구' })), null);
+    assert.equal(plan(approved(K1, 'visit', { place_text: '가상 공원', region_hint: '서울 종로구' }, { needs_app_review: true })), null);
+
+    const memory = plan(approved(K2, 'memory', {
+      title: '가상 추억', memo: '메모', year: 2026, month: 10, day: 8, region_hint: '서울 종로구', emotions: ['행복'],
+      song_artist: '가상 가수', song_title: '가상 노래',
+    }));
+    assert.ok(memory && memory.kind === 'memory');
+    assert.equal(memory.memory.regionCode, '11010');
+    assert.equal(memory.memory.timeType, 'date');
+    assert.equal(memory.memory.computedYear, 2026);
+    assert.deepEqual(memory.memory.song, { artist: '가상 가수', title: '가상 노래' });
+    assert.equal(memory.memory.emotions.length, 1);
+    // No place at all is fine; a place without a chosen 시군구 is not.
+    assert.equal(plan(approved(K2, 'memory', { title: '가상 추억' }))?.kind, 'memory');
+    assert.equal(plan(approved(K2, 'memory', { title: '가상 추억', place_text: '가상 카페' })), null);
+    assert.equal(plan(approved(K2, 'memory', { title: '가상 추억', region_hint: '어딘가' })), null);
+  });
+
+  it('exact labels only', () => {
+    assert.equal(exactRegion(' 서울 종로구 ', regions)?.code, '11010');
+    assert.equal(exactRegion('종로구', regions), null);
+    assert.equal(exactRegion(undefined, regions), null);
+  });
+
+  it('auto-apply is on by default and can be turned off per device', async () => {
+    const d = deps(fakeHub([]).f);
+    assert.equal(autoApplyEnabled(d), true);
+    setAutoApply(d, false);
+    assert.equal(autoApplyEnabled(d), false);
+    setAutoApply(d, true);
+    assert.equal(autoApplyEnabled(d), true);
+  });
+
+  it('uploads the 시군구 list once per revision, ids and labels only', async () => {
+    const { hub, f } = fakeHub([]);
+    const d = await connected(f);
+    const refs = regionRefs(regions, (code) => (code.startsWith('31') ? '경기' : '서울'));
+    hub.fail = 1;
+    assert.equal(await uploadRegionRefs(refs, d), false);
+    assert.equal(await uploadRegionRefs(refs, d), true);
+    assert.equal(await uploadRegionRefs(refs, d), false, 'not sent again for the same revision');
+    const puts = hub.posts.filter((x) => x.path === '/kyeokyeoi/v1/refs/regions');
+    assert.equal(puts.length, 1);
+    const body = puts[0].body as unknown as { revision: number; items: Array<Record<string, string>> };
+    assert.equal(body.revision, REGIONS_REF_REVISION);
+    assert.deepEqual(body.items[1], { id: '31103', label: '경기 고양시 일산서구', group: '경기' });
+    assert.ok(body.items.every((x) => Object.keys(x).every((k) => ['id', 'label', 'group'].includes(k))));
+
+    // A newer list already on Life Hub (409) also counts as done.
+    const other = fakeHub([]);
+    other.hub.conflict.add(undefined as unknown as string);
+    const d2 = await connected(other.f);
+    assert.equal(await uploadRegionRefs(refs, d2), true);
+    assert.equal(await uploadRegionRefs(refs, d2), false);
+  });
+
+  it('the real 시군구 list fits the Life Hub limits (≤ 500 items, ≤ 32 KB, unique labels)', async () => {
+    const fs = await import('node:fs');
+    const data = JSON.parse(fs.readFileSync(new URL('../public/regions.json', import.meta.url), 'utf8')) as { regions: Array<{ code: string; name: string }> };
+    const refs = data.regions.map((r) => ({ id: r.code, label: '경기도 ' + r.name, group: '경기도' }));
+    assert.ok(refs.length <= 500);
+    assert.ok(JSON.stringify({ revision: 1, items: refs }).length <= 32768);
   });
 });
