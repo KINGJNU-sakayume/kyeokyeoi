@@ -63,10 +63,15 @@ export interface MemoryProposal {
   month?: number;
   day?: number;
   place_text?: string;
+  /** The assistant's resolution of the place to a 시군구, e.g. "경기 고양시 일산서구". Pre-fill only. */
+  region_hint?: string;
   emotions?: string[];
+  song_artist?: string;
+  song_title?: string;
 }
 export interface VisitProposal {
   place_text: string;
+  region_hint?: string;
   visited_on?: string;
   note?: string;
 }
@@ -95,8 +100,9 @@ export function parseProposal(item: unknown): Proposal | null {
     return null;
   const p = c.payload;
   if (c.candidate_type === 'memory') {
-    if (!only(p, ['title', 'memo', 'time_text', 'year', 'month', 'day', 'place_text', 'emotions']) || !text(p.title, 80) ||
-      !optText(p.memo, 2000) || !optText(p.time_text, 100) || !optText(p.place_text, 100) ||
+    if (!only(p, ['title', 'memo', 'time_text', 'year', 'month', 'day', 'place_text', 'region_hint', 'emotions', 'song_artist', 'song_title']) ||
+      !text(p.title, 80) || !optText(p.memo, 2000) || !optText(p.time_text, 100) || !optText(p.place_text, 100) ||
+      !optText(p.region_hint, 60) || !optText(p.song_artist, 100) || !optText(p.song_title, 100) ||
       !int(p.year, 1900, 2100) || !int(p.month, 1, 12) || !int(p.day, 1, 31) ||
       (p.month !== undefined && p.year === undefined) || (p.day !== undefined && p.month === undefined) ||
       (p.emotions !== undefined && (!Array.isArray(p.emotions) || p.emotions.length > 5 ||
@@ -106,7 +112,8 @@ export function parseProposal(item: unknown): Proposal | null {
     return { key: item.key, source: c.source, type: 'memory', payload: p as unknown as MemoryProposal };
   }
   if (c.candidate_type === 'visit') {
-    if (!only(p, ['place_text', 'visited_on', 'note']) || !text(p.place_text, 100) || !optText(p.note, 500) ||
+    if (!only(p, ['place_text', 'region_hint', 'visited_on', 'note']) || !text(p.place_text, 100) || !optText(p.note, 500) ||
+      !optText(p.region_hint, 60) ||
       (p.visited_on !== undefined && (typeof p.visited_on !== 'string' || !validDate(p.visited_on))))
       return null;
     return { key: item.key, source: c.source, type: 'visit', payload: p as unknown as VisitProposal };
@@ -144,7 +151,9 @@ export function memoryPrefill(proposal: MemoryProposal) {
     timeType,
     timeValue,
     emotions,
-    placeQuery: proposal.place_text?.trim() ?? '',
+    placeQuery: (proposal.region_hint ?? proposal.place_text)?.trim() ?? '',
+    songArtist: proposal.song_artist?.trim() ?? '',
+    songTitle: proposal.song_title?.trim() ?? '',
   };
 }
 

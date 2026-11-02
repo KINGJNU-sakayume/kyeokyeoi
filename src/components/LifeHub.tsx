@@ -7,6 +7,8 @@ import {
 } from '../integration/lifehub';
 import type { Proposal } from '../integration/lifehub';
 import { requestLifeHubSync, setLifeHubState, SYNC_EVENT, useLifeHub, getLifeHubState } from '../integration/lifehubStore';
+import { PROVINCES, regionLabel, useRegions } from '../map/geodata';
+import { matchRegion } from '../map/regionMatch';
 import Sheet from './Sheet';
 import RegionPicker from './RegionPicker';
 import ConfirmDialog from './ConfirmDialog';
@@ -145,7 +147,14 @@ export function LifeHubSection() {
   );
 }
 
-type VisitDraft = { proposal: Extract<Proposal, { type: 'visit' }>; code?: string; label?: string; date: string };
+type VisitDraft = {
+  proposal: Extract<Proposal, { type: 'visit' }>;
+  code?: string;
+  label?: string;
+  date: string;
+  /** Region pre-selected from the proposal's region_hint, when it matched exactly one 시군구. */
+  guess?: string;
+};
 
 function ProposalsSheet({ onClose }: { onClose: () => void }) {
   const hub = useLifeHub();
@@ -154,11 +163,24 @@ function ProposalsSheet({ onClose }: { onClose: () => void }) {
   const [visit, setVisit] = useState<VisitDraft | null>(null);
   const [rejecting, setRejecting] = useState<Proposal | null>(null);
   const [busy, setBusy] = useState(false);
+  const regionSet = useRegions();
+
+  /** Only an exact, unambiguous 시군구 match is pre-selected; anything else stays a search. */
+  function resolve(hint?: string) {
+    if (!hint || !regionSet) return null;
+    const match = matchRegion(hint, regionSet.regions, PROVINCES);
+    return match ? { code: match.code, label: regionLabel(match) } : null;
+  }
 
   function makeMemory(p: Extract<Proposal, { type: 'memory' }>) {
     const pre = memoryPrefill(p.payload);
+    const region = resolve(p.payload.region_hint);
     onClose();
-    openAddSheet({ ...pre, source: sourceFor(p.key) });
+    openAddSheet({
+      ...pre,
+      ...(region ? { regionCode: region.code, regionLabel: region.label } : {}),
+      source: sourceFor(p.key),
+    });
   }
 
   async function saveVisit() {
@@ -224,27 +246,38 @@ function ProposalsSheet({ onClose }: { onClose: () => void }) {
                         : p.payload.time_text}
                     </span>
                   )}
-                  {p.payload.place_text && <span>{p.payload.place_text}</span>}
+                  {(p.payload.place_text || p.payload.region_hint) && (
+                    <span>
+                      {[p.payload.place_text, p.payload.region_hint && `(${p.payload.region_hint})`].filter(Boolean).join(' ')}
+                    </span>
+                  )}
+                  {(p.payload.song_artist || p.payload.song_title) && (
+                    <span>♪ {[p.payload.song_artist, p.payload.song_title].filter(Boolean).join(' — ')}</span>
+                  )}
                   {p.payload.memo && <p>{p.payload.memo}</p>}
                   {p.payload.emotions?.length ? <span>{p.payload.emotions.join(' · ')}</span> : null}
                 </>
               ) : (
                 <>
                   <strong>{p.payload.place_text}</strong>
+                  {p.payload.region_hint && <span>{p.payload.region_hint}</span>}
                   <span>{p.payload.visited_on ? `${p.payload.visited_on} 방문` : '방문 날짜 없음'}</span>
                   {p.payload.note && <p>{p.payload.note}</p>}
                 </>
               )}
               <div className="lifehub__actions">
                 {p.type === 'memory' ? (
-                  <button type="button" className="btn" onClick={() => makeMemory(p)}>
+                  <button type="button" className="btn" disabled={regionSet === undefined} onClick={() => makeMemory(p)}>
                     추억으로 만들기
                   </button>
                 ) : (
                   <button
                     type="button"
                     className="btn"
-                    onClick={() => setPicking({ proposal: p, date: p.payload.visited_on ?? '' })}
+                    disabled={regionSet === undefined}
+                    onClick={() =>
+                      setPicking({ proposal: p, date: p.payload.visited_on ?? '', guess: resolve(p.payload.region_hint)?.code })
+                    }
                   >
                     지역 고르고 기록
                   </button>
@@ -259,7 +292,8 @@ function ProposalsSheet({ onClose }: { onClose: () => void }) {
       </Sheet>
       {picking && (
         <RegionPicker
-          initialQuery={picking.proposal.payload.place_text}
+          currentCode={picking.guess ?? null}
+          initialQuery={picking.guess ? undefined : (picking.proposal.payload.region_hint ?? picking.proposal.payload.place_text)}
           onClose={() => setPicking(null)}
           onSelect={(code, label) => {
             setVisit({ ...picking, code, label });

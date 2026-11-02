@@ -92,12 +92,16 @@ describe('proposal contract', () => {
   it('accepts memories and visits in the user\'s words and refuses anything else', () => {
     assert.equal(parseProposal(item(K1, 'memory', { title: '바다', time_text: '고2 여름', emotions: ['설렘'] }))?.type, 'memory');
     assert.equal(parseProposal(item(K2, 'visit', { place_text: '강릉', visited_on: '2026-10-12' }))?.type, 'visit');
+    assert.equal(parseProposal(item(K1, 'memory', { title: 'x', region_hint: '경기 고양시 일산서구', song_artist: 'The Weeknd', song_title: 'Blinding Lights' }))?.type, 'memory');
+    assert.equal(parseProposal(item(K2, 'visit', { place_text: '고양종합운동장', region_hint: '경기 고양시 일산서구' }))?.type, 'visit');
     for (const bad of [
       item(K1, 'memory', {}),
       item(K1, 'memory', { title: 'x', month: 3 }),
       item(K1, 'memory', { title: 'x', year: 2023, month: 2, day: 30 }),
       item(K1, 'memory', { title: 'x', emotions: ['분노'] }),
       item(K1, 'memory', { title: 'x', region_code: '11010' }),
+      item(K1, 'memory', { title: 'x', region_hint: 'x'.repeat(61) }),
+      item(K1, 'visit', { place_text: 'x', song_artist: 'y' }),
       item(K1, 'visit', { place_text: '서울', visited_on: '어제' }),
       item(K1, 'meal', { menu_name: 'x' }),
       { ...item(K1, 'visit', { place_text: '서울' }), key: K2 },
@@ -107,7 +111,14 @@ describe('proposal contract', () => {
 
   it('maps a memory proposal to the add sheet: stated dates win, otherwise the user\'s time words', () => {
     assert.deepEqual(memoryPrefill({ title: ' 바다 ', year: 2019, month: 8 }), {
-      title: '바다', memo: '', timeType: 'month', timeValue: { year: 2019, month: 8 }, emotions: [], placeQuery: '' });
+      title: '바다', memo: '', timeType: 'month', timeValue: { year: 2019, month: 8 }, emotions: [], placeQuery: '',
+      songArtist: '', songTitle: '' });
+    const concert = memoryPrefill({ title: '더 위켄드 콘서트', time_text: '10월 8일', year: 2026, month: 10, day: 8,
+      place_text: '고양종합운동장', region_hint: '경기 고양시 일산서구', song_artist: 'The Weeknd' });
+    assert.equal(concert.timeType, 'date');
+    assert.deepEqual(concert.timeValue, { year: 2026, month: 10, day: 8 });
+    assert.equal(concert.placeQuery, '경기 고양시 일산서구');
+    assert.equal(concert.songArtist, 'The Weeknd');
     const free = memoryPrefill({ title: '수학여행', time_text: '고2 가을', place_text: '경주', emotions: ['설렘', '행복'] });
     assert.equal(free.timeType, 'free');
     assert.deepEqual(free.timeValue, { freeText: '고2 가을' });
