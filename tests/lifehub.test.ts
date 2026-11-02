@@ -267,6 +267,13 @@ describe('Claude card approvals (P4 stage 2)', () => {
     assert.equal(body.revision, REGIONS_REF_REVISION);
     assert.deepEqual(body.items[1], { id: '31103', label: '경기 고양시 일산서구', group: '경기' });
     assert.ok(body.items.every((x) => Object.keys(x).every((k) => ['id', 'label', 'group'].includes(k))));
+
+    // A newer list already on Life Hub (409) also counts as done.
+    const other = fakeHub([]);
+    other.hub.conflict.add(undefined as unknown as string);
+    const d2 = await connected(other.f);
+    assert.equal(await uploadRegionRefs(refs, d2), true);
+    assert.equal(await uploadRegionRefs(refs, d2), false);
   });
 
   it('the real 시군구 list fits the Life Hub limits (≤ 500 items, ≤ 32 KB, unique labels)', async () => {

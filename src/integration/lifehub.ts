@@ -374,7 +374,8 @@ export interface RegionRef {
 export async function uploadRegionRefs(items: RegionRef[], deps: Deps): Promise<boolean> {
   if (deps.storage.getItem(REGION_REFS_KEY) === String(REGIONS_REF_REVISION) || !items.length) return false;
   const response = await api(deps, 'PUT', '/refs/regions', { revision: REGIONS_REF_REVISION, items });
-  if (!response.ok) return false;
+  // 409: Life Hub already holds a newer list (e.g. from another device) — nothing more to send.
+  if (!response.ok && response.status !== 409) return false;
   deps.storage.setItem(REGION_REFS_KEY, String(REGIONS_REF_REVISION));
   return true;
 }
