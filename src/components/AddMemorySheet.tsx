@@ -86,8 +86,8 @@ export default function AddMemorySheet({
   const [grade, setGrade] = useState('1');
   const [freeText, setFreeText] = useState(prefill?.timeValue?.freeText ?? '');
   const [emotions, setEmotions] = useState<string[]>(prefill?.emotions ?? []);
-  const [artist, setArtist] = useState('');
-  const [songTitle, setSongTitle] = useState('');
+  const [artist, setArtist] = useState(prefill?.songArtist ?? '');
+  const [songTitle, setSongTitle] = useState(prefill?.songTitle ?? '');
   const [photos, setPhotos] = useState<DraftPhoto[]>([]);
   const [memo, setMemo] = useState(prefill?.memo ?? '');
   const [isFirst, setIsFirst] = useState(false);
@@ -295,7 +295,14 @@ export default function AddMemorySheet({
             />
           </div>
 
-          <details className="optional-fields" open={isEdit || undefined}>
+          <details
+            className="optional-fields"
+            open={
+              isEdit ||
+              !!(prefill?.regionCode || prefill?.timeType || prefill?.songArtist || prefill?.songTitle) ||
+              undefined
+            }
+          >
             <summary>시간·장소·사진·세부 정보 (선택)</summary>
             <div className="field">
               <span className="field__label">어디서</span>

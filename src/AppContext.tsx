@@ -18,6 +18,8 @@ export interface SheetPrefill {
   emotions?: string[];
   /** Search text for the region picker (the place in the user's own words). */
   placeQuery?: string;
+  songArtist?: string;
+  songTitle?: string;
   /** Saved with the memory in the same transaction; it is the Life Hub receipt. */
   source?: SourceReference;
 }
