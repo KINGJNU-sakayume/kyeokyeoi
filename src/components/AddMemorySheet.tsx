@@ -6,6 +6,7 @@ import type { Memory, Season, SchoolType, TimeType, TimeValue } from '../db/inde
 import { computeYear } from '../utils/timeUtils';
 import { EMOTIONS } from '../utils/emotions';
 import { compressImage, forgetPhotoURL, registerPhotoURL, usePhotoURL } from '../utils/photoUtils';
+import { requestLifeHubSync } from '../integration/lifehubStore';
 import Sheet from './Sheet';
 import RegionPicker from './RegionPicker';
 import ConfirmDialog from './ConfirmDialog';
@@ -72,28 +73,29 @@ export default function AddMemorySheet({
   const thisYear = new Date().getFullYear();
 
   const [loaded, setLoaded] = useState<Memory | null>(null);
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(prefill?.title ?? '');
   const [regionCode, setRegionCode] = useState<string | null>(prefill?.regionCode ?? null);
   const [regionLabel, setRegionLabel] = useState<string | null>(prefill?.regionLabel ?? null);
-  const [timeType, setTimeType] = useState<TimeType | null>(null);
-  const [year, setYear] = useState('');
-  const [month, setMonth] = useState('');
-  const [day, setDay] = useState('');
+  const [timeType, setTimeType] = useState<TimeType | null>(prefill?.timeType ?? null);
+  const [year, setYear] = useState(prefill?.timeValue?.year?.toString() ?? '');
+  const [month, setMonth] = useState(prefill?.timeValue?.month?.toString() ?? '');
+  const [day, setDay] = useState(prefill?.timeValue?.day?.toString() ?? '');
   const [season, setSeason] = useState<Season | null>(null);
   const [age, setAge] = useState('');
   const [school, setSchool] = useState<SchoolType>('elementary');
   const [grade, setGrade] = useState('1');
-  const [freeText, setFreeText] = useState('');
-  const [emotions, setEmotions] = useState<string[]>([]);
+  const [freeText, setFreeText] = useState(prefill?.timeValue?.freeText ?? '');
+  const [emotions, setEmotions] = useState<string[]>(prefill?.emotions ?? []);
   const [artist, setArtist] = useState('');
   const [songTitle, setSongTitle] = useState('');
   const [photos, setPhotos] = useState<DraftPhoto[]>([]);
-  const [memo, setMemo] = useState('');
+  const [memo, setMemo] = useState(prefill?.memo ?? '');
   const [isFirst, setIsFirst] = useState(false);
 
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  // A proposal-filled sheet already holds content worth confirming before discarding.
+  const [dirty, setDirty] = useState(!!prefill?.title);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -169,6 +171,7 @@ export default function AddMemorySheet({
       const id = editId ?? newId();
       const memory: Memory = {
         ...loaded,
+        ...(!isEdit && prefill?.source ? { source: prefill.source } : {}),
         id,
         title: title.trim(),
         regionCode,
@@ -195,12 +198,13 @@ export default function AddMemorySheet({
       removed.forEach(forgetPhotoURL);
       await refreshMemories();
       showToast(isEdit ? '고쳤어요.' : '기록했어요.');
+      if (memory.source) requestLifeHubSync();
       closeSheet();
     } catch (e) {
       console.error(e);
       const full = e instanceof DOMException && e.name === 'QuotaExceededError';
       showToast(
-        e instanceof Error && e.message.includes('다른 탭')
+        e instanceof Error && (e.message.includes('다른 탭') || e.message.includes('이미'))
           ? e.message
           : full
             ? '저장 공간이 부족해서 저장하지 못했어요. 사진을 줄이거나 설정에서 백업 후 정리해 주세요.'
@@ -565,6 +569,7 @@ export default function AddMemorySheet({
       {picking && (
         <RegionPicker
           currentCode={regionCode}
+          initialQuery={regionCode ? undefined : prefill?.placeQuery}
           onSelect={(code, label) => {
             setRegionCode(code);
             setRegionLabel(label);

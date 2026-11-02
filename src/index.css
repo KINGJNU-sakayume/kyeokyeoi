@@ -1756,3 +1756,14 @@ textarea.input {
     padding: 30px 72px 16px 40px;
   }
 }
+
+/* Life Hub proposals */
+.lifehub { display: grid; gap: 12px; }
+.lifehub__empty { color: var(--ink-3); padding: 24px 0; text-align: center; }
+.lifehub__card { display: grid; gap: 4px; padding: 14px; border-radius: 14px; background: var(--paper-2); }
+.lifehub__card strong { font-size: 1.05rem; overflow-wrap: anywhere; }
+.lifehub__card p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lifehub__card span { font-size: 0.9rem; overflow-wrap: anywhere; }
+.lifehub__type { font-size: 0.78rem !important; color: var(--ink-2); letter-spacing: 0.02em; }
+.lifehub__actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.lifehub__actions .btn { flex: 1 1 140px; }

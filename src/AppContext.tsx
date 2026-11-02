@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { Memory, RegionVisit, MemoryCollection, LifePeriod } from './db/index';
+import type { Memory, RegionVisit, MemoryCollection, LifePeriod, SourceReference, TimeType, TimeValue } from './db/index';
 import type { Theme } from './theme/index';
 
 export type Tab = 'map' | 'timeline' | 'memories' | 'collections' | 'settings';
@@ -8,8 +8,18 @@ export type Route =
   { type: 'onboarding' } | { type: 'main'; tab: Tab } | { type: 'detail'; memoryId: string };
 
 export interface SheetPrefill {
-  regionCode: string;
-  regionLabel: string;
+  regionCode?: string | null;
+  regionLabel?: string | null;
+  /** From a Life Hub proposal: the owner still reviews everything before saving. */
+  title?: string;
+  memo?: string;
+  timeType?: TimeType | null;
+  timeValue?: TimeValue | null;
+  emotions?: string[];
+  /** Search text for the region picker (the place in the user's own words). */
+  placeQuery?: string;
+  /** Saved with the memory in the same transaction; it is the Life Hub receipt. */
+  source?: SourceReference;
 }
 
 export interface AppContextValue {

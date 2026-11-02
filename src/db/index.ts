@@ -8,6 +8,7 @@ import type {
   RegionVisit,
   MemoryCollection,
   LifePeriod,
+  SourceReference,
 } from './model';
 import {
   decodePhoto,
@@ -177,6 +178,19 @@ export function createRepository(name: string) {
           throw new Error(
             '다른 탭에서 기억이 변경됐어요. 입력을 복사한 뒤 최신 기록을 다시 열어 주세요.',
           );
+        // One external proposal becomes at most one memory, even if approved twice (another tab, a retry).
+        if (memory.source) {
+          const all: Memory[] = await tx.objectStore('memories').getAll();
+          if (
+            all.some(
+              (m) =>
+                m.id !== memory.id &&
+                m.source?.service === memory.source!.service &&
+                m.source.originalId === memory.source!.originalId,
+            )
+          )
+            throw new Error('이 제안으로 만든 추억이 이미 있어요.');
+        }
         const photos = tx.objectStore('photos');
         for (const p of addPhotos) {
           const previous: PhotoRecord | undefined = await photos.get(p.id);
@@ -269,6 +283,45 @@ export function createRepository(name: string) {
         } else await tx.store.delete(r.code);
       }
       await tx.done;
+    },
+    /**
+     * Mark a region visited because the owner approved an external proposal. Idempotent: the same source
+     * returns the visit it created before. A region already visited keeps its record unchanged and that
+     * visit is returned; nothing is overwritten or removed.
+     */
+    async recordVisitFromSource(
+      region: { code: string; label: string },
+      visitedOn: string | null,
+      source: SourceReference,
+    ): Promise<RegionVisit> {
+      if (
+        visitedOn &&
+        (!/^\d{4}-\d{2}-\d{2}$/.test(visitedOn) || Number.isNaN(Date.parse(visitedOn)))
+      )
+        throw new Error('방문 날짜를 확인해 주세요.');
+      const tx = (await getDb()).transaction('regionVisits', 'readwrite');
+      const all: RegionVisit[] = await tx.store.getAll();
+      const same = all.find(
+        (v) => v.source?.service === source.service && v.source.originalId === source.originalId,
+      );
+      const existing = same ?? all.find((v) => v.regionCode === region.code);
+      if (existing) {
+        await tx.done;
+        return existing;
+      }
+      const now = Date.now();
+      const visit: RegionVisit = {
+        id: newId(),
+        regionCode: region.code,
+        regionLabel: region.label,
+        visitedOn,
+        recordedAt: now,
+        updatedAt: now,
+        source,
+      };
+      await tx.store.add(visit);
+      await tx.done;
+      return visit;
     },
     async getCollections(): Promise<MemoryCollection[]> {
       return (await getDb()).getAll('collections');

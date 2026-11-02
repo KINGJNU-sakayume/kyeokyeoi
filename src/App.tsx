@@ -17,6 +17,8 @@ import OnboardingFlow from './views/OnboardingFlow';
 import MainLayout from './views/MainLayout';
 import MemoryDetailView from './views/MemoryDetailView';
 import AddMemorySheet from './components/AddMemorySheet';
+import { LifeHubAgent } from './components/LifeHub';
+import { isAuthCallback } from './integration/lifehub';
 
 import { applyPwaUpdate, subscribePwa } from './pwa';
 
@@ -51,7 +53,10 @@ type SheetState = { mode: 'add'; prefill?: SheetPrefill } | { mode: 'edit'; id: 
 export default function App() {
   const [ready, setReady] = useState(false);
   const [onboarded, setOnboarded] = useState(false);
-  const [route, setRoute] = useState<Route>(() => hashToRoute(location.hash));
+  // Returning from Life Hub sign-in lands on the app root with ?code&state: show Settings while it finishes.
+  const [route, setRoute] = useState<Route>(() =>
+    isAuthCallback(location.search) ? { type: 'main', tab: 'settings' } : hashToRoute(location.hash),
+  );
   const [memories, setMemories] = useState<Memory[]>([]);
   const [visits, setVisits] = useState<RegionVisit[]>([]);
   const [collections, setCollections] = useState<MemoryCollection[]>([]);
@@ -275,6 +280,7 @@ export default function App() {
 
   return (
     <AppContext.Provider value={ctx}>
+      <LifeHubAgent />
       {storageStatus && (
         <div className="app-notice" role="status">
           {storageStatus}
