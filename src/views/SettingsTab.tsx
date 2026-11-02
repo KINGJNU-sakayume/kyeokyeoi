@@ -11,6 +11,7 @@ import {
 } from '../db/index';
 import { formatBytes } from '../utils/photoUtils';
 import Sheet from '../components/Sheet';
+import { LifeHubSection } from '../components/LifeHub';
 import { YearWheel } from './OnboardingFlow';
 
 export default function SettingsTab() {
@@ -188,6 +189,8 @@ export default function SettingsTab() {
             })}
           </div>
         </section>
+
+        <LifeHubSection />
 
         <section className="group" aria-labelledby="g-data">
           <h2 className="group__title" id="g-data">

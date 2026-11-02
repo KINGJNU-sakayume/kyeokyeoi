@@ -14,15 +14,17 @@ interface RegionPickerProps {
   onSelect: (code: string, label: string) => void;
   onClose: () => void;
   currentCode?: string | null;
+  /** Prefills the search box, e.g. a place name from a Life Hub proposal. */
+  initialQuery?: string;
 }
 
 /** 시군구 고르기: 이름으로 찾거나, 시·도를 고른 뒤 목록에서 골라요. 위 지도는 고른 곳을 보여주기만 해요. */
-export default function RegionPicker({ onSelect, onClose, currentCode }: RegionPickerProps) {
+export default function RegionPicker({ onSelect, onClose, currentCode, initialQuery }: RegionPickerProps) {
   const set = useRegions();
   const current = currentCode && set ? set.byCode.get(currentCode) : undefined;
   const [prov, setProv] = useState<string>(current?.prov ?? '11');
   const [code, setCode] = useState<string | null>(currentCode ?? null);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery ?? '');
 
   const q = query.trim().replace(/\s+/g, '');
   const list = useMemo(() => {
