@@ -39,7 +39,7 @@ test('not connected: Life Hub connect is shown but only enabled on the deployed 
   const connect = page.getByRole('button', { name: /Life Hub 연결/ });
   await expect(connect).toBeVisible();
   await expect(connect).toBeDisabled();
-  await expect(page.getByText('배포된 켜켜이 주소에서만 연결할 수 있어요')).toBeVisible();
+  await expect(page.getByText('배포된 주소에서만 연결할 수 있어요.')).toBeVisible();
 });
 
 test('connected: proposals become a memory and a visit only after review, and receipts are sent', async ({ page }) => {
@@ -182,7 +182,8 @@ test('opening the app saves what the owner approved in a Claude card, shares the
   await expect(sheet.getByText(/Claude에서 승인함/)).toBeVisible();
   await sheet.getByRole('button', { name: '닫기' }).click();
 
-  await expect(page.getByRole('switch', { name: /Claude에서 승인된 항목 자동 반영/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('checkbox', { name: /Claude에서 승인한 기록은 바로 반영/ })).toBeChecked();
+  await expect(page.getByText(/^연결됨 · /)).toBeVisible();
 
   // Reopening does not save anything twice and does not send the list again.
   await page.reload();

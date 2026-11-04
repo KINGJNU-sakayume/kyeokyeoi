@@ -8,7 +8,9 @@ import {
 } from '../integration/lifehub';
 import type { Proposal } from '../integration/lifehub';
 import { planAutoApply, regionRefs, type RegionEntry } from '../integration/lifehubApply';
-import { requestLifeHubSync, setLifeHubState, SYNC_EVENT, useLifeHub, getLifeHubState } from '../integration/lifehubStore';
+import {
+  getLifeHubState, hubPhase, requestLifeHubSync, setLifeHubState, statusLine, SYNC_EVENT, useLifeHub,
+} from '../integration/lifehubStore';
 import { loadRegions, PROVINCES, provinceOf, regionLabel, useRegions } from '../map/geodata';
 import { matchRegion } from '../map/regionMatch';
 import Sheet from './Sheet';
@@ -67,7 +69,7 @@ export function LifeHubAgent() {
   const run = useCallback(
     async (quiet: boolean) => {
       if (!isConnected(browserDeps()) || getLifeHubState().syncing) return;
-      setLifeHubState({ syncing: true, error: '' });
+      setLifeHubState({ syncing: true, error: '', errorKind: '' });
       try {
         // Read the archive directly so a record saved a moment ago is always included.
         const [memories, visits] = await Promise.all([getMemories(), getRegionVisits()]);
@@ -85,15 +87,14 @@ export function LifeHubAgent() {
             r = await sync(m2, v2, browserDeps());
           }
         }
-        setLifeHubState({ proposals: r.proposals, conflicts: r.conflicts, lastSyncedAt: Date.now(), connected: true });
+        setLifeHubState({ proposals: r.proposals, conflicts: r.conflicts, lastSyncedAt: Date.now(), connected: true, reauth: false });
         if (saved)
           showToast(`Claude에서 승인한 기록 ${saved}개를 켜켜이에 저장했어요.` + (r.proposals.length ? ` 확인할 제안 ${r.proposals.length}개는 설정에 있어요.` : ''));
-        else if (!quiet) showToast(r.proposals.length ? `Life Hub 제안 ${r.proposals.length}개가 있어요.` : '새 제안이 없어요.');
-        else if (r.proposals.length > before) showToast(`Life Hub에서 제안 ${r.proposals.length}개가 왔어요. 설정에서 볼 수 있어요.`);
+        else if (quiet && r.proposals.length > before) showToast(`Life Hub에서 제안 ${r.proposals.length}개가 왔어요. 설정에서 볼 수 있어요.`);
       } catch (e) {
-        if (e instanceof LifeHubError && e.kind === 'not_connected') setLifeHubState({ connected: false, proposals: [] });
-        setLifeHubState({ error: e instanceof Error ? e.message : String(e) });
-        if (!quiet) showToast(e instanceof Error ? e.message : '동기화하지 못했어요.');
+        // The result is shown in the status line (retry wait in B, 「확인 필요」 in C), not as a toast.
+        if (e instanceof LifeHubError && e.kind === 'not_connected') setLifeHubState({ connected: false, reauth: true, proposals: [] });
+        setLifeHubState({ error: e instanceof Error ? e.message : String(e), errorKind: e instanceof LifeHubError ? e.kind : 'server' });
       } finally {
         setLifeHubState({ syncing: false });
       }
@@ -109,10 +110,10 @@ export function LifeHubAgent() {
         callbackOnce ??= completeConnect(location.search, browserDeps());
         try {
           await callbackOnce;
-          setLifeHubState({ connected: true, error: '' });
+          setLifeHubState({ connected: true, error: '', errorKind: '', reauth: false });
           showToast('Life Hub에 연결했어요.');
         } catch (e) {
-          setLifeHubState({ error: e instanceof Error ? e.message : String(e) });
+          setLifeHubState({ error: e instanceof Error ? e.message : String(e), errorKind: e instanceof LifeHubError ? e.kind : 'server' });
           showToast(e instanceof Error ? e.message : 'Life Hub에 연결하지 못했어요.');
         }
         history.replaceState(null, '', APP_URL + '#/settings');
@@ -132,6 +133,7 @@ export function LifeHubSection() {
   const [confirmOff, setConfirmOff] = useState(false);
   const [autoApply, setAutoApplyState] = useState(() => autoApplyEnabled(browserDeps()));
   const canConnect = connectAvailable(location);
+  const phase = hubPhase(hub);
 
   async function connect() {
     try {
@@ -141,64 +143,82 @@ export function LifeHubSection() {
     }
   }
 
+  const disconnectButton = (
+    <button type="button" className="btn btn--quiet" onClick={() => setConfirmOff(true)}>
+      연결 해제
+    </button>
+  );
+
   return (
     <section className="group" aria-labelledby="g-lifehub">
       <h2 className="group__title" id="g-lifehub">
         Life Hub
       </h2>
-      <div className="rows">
-        {hub.connected ? (
-          <>
-            <button type="button" className="row" onClick={() => setOpen(true)}>
-              <span className="row__label">
-                Claude가 제안한 기록
-                <small>{hub.proposals.length ? `검토할 제안 ${hub.proposals.length}개` : '검토할 제안이 없어요'}</small>
-              </span>
-              {hub.proposals.length > 0 && <span className="row__value">{hub.proposals.length}</span>}
-            </button>
-            <button type="button" className="row" disabled={hub.syncing} onClick={() => requestLifeHubSync(false)}>
-              <span className="row__label">
-                {hub.syncing ? '동기화 중' : '지금 동기화'}
-                <small>
-                  {hub.lastSyncedAt ? `마지막 동기화 ${new Date(hub.lastSyncedAt).toLocaleTimeString('ko-KR')}` : '아직 동기화하지 않았어요'}
-                </small>
-              </span>
-            </button>
-            <div className="switch-row">
-              <span className="switch-row__text" id="lifehub-auto-label">
-                Claude에서 승인된 항목 자동 반영
-                <small>Claude 대화 카드에서 승인한 추억·방문을 앱을 열 때 저장해요. 시군구가 정해지지 않은 건 여기서 확인해요.</small>
-              </span>
-              <button
-                type="button"
-                role="switch"
-                className="switch"
-                aria-checked={autoApply}
-                aria-labelledby="lifehub-auto-label"
-                onClick={() => {
-                  setAutoApply(browserDeps(), !autoApply);
-                  setAutoApplyState(!autoApply);
-                  if (!autoApply) requestLifeHubSync();
-                }}
-              />
-            </div>
-            <button type="button" className="row" onClick={() => setConfirmOff(true)}>
-              <span className="row__label">
-                연결 해제
-                <small>이 기기에서만 해제해요. 저장된 기록은 그대로예요.</small>
-              </span>
-            </button>
-          </>
-        ) : (
-          <button type="button" className="row" disabled={!canConnect} onClick={() => void connect()}>
+      {phase === 'B' && hub.proposals.length > 0 && (
+        <div className="rows">
+          <button type="button" className="row" onClick={() => setOpen(true)}>
             <span className="row__label">
-              Life Hub 연결
-              <small>{canConnect ? 'Claude가 제안한 추억과 방문을 여기서 확인해요' : '배포된 켜켜이 주소에서만 연결할 수 있어요'}</small>
+              Claude가 제안한 기록
+              <small>검토할 제안 {hub.proposals.length}개</small>
             </span>
+            <span className="row__value">{hub.proposals.length}</span>
           </button>
-        )}
-      </div>
-      {(hub.error || hub.conflicts > 0) && (
+        </div>
+      )}
+      {phase === 'A' && (
+        <div className="lifehub__block">
+          <p className="lifehub__lede">Claude가 제안한 기록을 받습니다.</p>
+          <button type="button" className="btn" disabled={!canConnect} onClick={() => void connect()}>
+            Life Hub 연결
+          </button>
+          {!canConnect && <p className="group__note">배포된 주소에서만 연결할 수 있어요.</p>}
+        </div>
+      )}
+      {phase === 'B' && (
+        <div className="lifehub__block">
+          <p className="lifehub__status" role="status">
+            <span className="lifehub__dot" aria-hidden="true" />
+            {statusLine(hub)}
+          </p>
+          <div className="lifehub__actions">
+            <button type="button" className="btn btn--quiet" disabled={hub.syncing} onClick={() => requestLifeHubSync(false)}>
+              지금 동기화
+            </button>
+            {disconnectButton}
+          </div>
+          <label className="lifehub__check">
+            <input
+              type="checkbox"
+              checked={autoApply}
+              onChange={(e) => {
+                setAutoApply(browserDeps(), e.target.checked);
+                setAutoApplyState(e.target.checked);
+                if (e.target.checked) requestLifeHubSync();
+              }}
+            />
+            <span>
+              Claude에서 승인한 기록은 바로 반영
+              <small>Claude 대화 카드에서 승인한 추억·방문을 앱을 열 때 저장해요. 시군구가 정해지지 않은 건 여기서 확인해요.</small>
+            </span>
+          </label>
+        </div>
+      )}
+      {phase === 'C' && (
+        <div className="lifehub__block">
+          <p className="lifehub__status" role="status">
+            <span className="lifehub__dot lifehub__dot--warn" aria-hidden="true" />
+            확인 필요
+          </p>
+          <div className="lifehub__warn">
+            <p>Life Hub 연결이 끊겼습니다. 다시 연결해 주세요. 이 기기의 기록은 그대로입니다.</p>
+            <button type="button" className="btn" disabled={!canConnect} onClick={() => void connect()}>
+              다시 연결
+            </button>
+          </div>
+          <div className="lifehub__actions">{disconnectButton}</div>
+        </div>
+      )}
+      {phase === 'B' && (hub.error || hub.conflicts > 0) && (
         <p className="group__note" role="status">
           {hub.error || `${hub.conflicts}개 제안은 Life Hub와 상태가 달라요. 켜켜이에 저장된 기록은 그대로 유지돼요.`}
         </p>
@@ -212,7 +232,7 @@ export function LifeHubSection() {
           onCancel={() => setConfirmOff(false)}
           onConfirm={() => {
             disconnect(browserDeps());
-            setLifeHubState({ connected: false, proposals: [] });
+            setLifeHubState({ connected: false, reauth: false, proposals: [], error: '', errorKind: '' });
             setConfirmOff(false);
             showToast('Life Hub 연결을 해제했어요.');
           }}
