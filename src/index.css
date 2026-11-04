@@ -1767,3 +1767,16 @@ textarea.input {
 .lifehub__type { font-size: 0.78rem !important; color: var(--ink-2); letter-spacing: 0.02em; }
 .lifehub__actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .lifehub__actions .btn { flex: 1 1 140px; }
+
+/* Life Hub 설정 섹션 · 확인 필요 표시 */
+.lifehub__block { display: grid; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.lifehub__lede { margin: 0; color: var(--ink-2); font-size: var(--t-sm); }
+.lifehub__status { margin: 0; display: flex; align-items: center; gap: 8px; font-size: var(--t-sm); }
+.lifehub__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
+.lifehub__dot--warn { background: var(--danger); }
+.lifehub__warn { display: grid; gap: 10px; padding: 12px; border-radius: var(--r-md); background: color-mix(in srgb, var(--danger) 10%, var(--paper)); }
+.lifehub__warn p { margin: 0; font-size: var(--t-sm); }
+.lifehub__check { display: flex; gap: 10px; align-items: flex-start; font-size: var(--t-sm); }
+.lifehub__check input { margin-top: 3px; flex-shrink: 0; }
+.lifehub__check small { display: block; font-size: var(--t-xs); color: var(--ink-2); }
+.attn-dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
