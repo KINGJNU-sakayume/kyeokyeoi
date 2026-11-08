@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "app": "kyeokyeoi",
+  "generated_at": "2026-11-08T03:00:00.000Z",
+  "tiles": [
+    {
+      "id": "regions",
+      "name": "켜켜이 · 지역 방문",
+      "tone": "map",
+      "sizes": [
+        "2x2",
+        "2x1"
+      ],
+      "size": "2x2",
+      "default": true,
+      "href": "https://kingjnu-sakayume.github.io/kyeokyeoi/#/map",
+      "data": {
+        "label": "지역 방문",
+        "summary": "17개 시도 중 5곳 방문 · 마지막 10/30 부산",
+        "cols": 6,
+        "cells": [
+          {
+            "state": "off",
+            "name": "인천"
+          },
+          {
+            "state": "on",
+            "name": "서울"
+          },
+          {
+            "state": "on",
+            "name": "경기"
+          },
+          {
+            "state": "on",
+            "name": "강원"
+          },
+          {
+            "state": "off",
+            "name": "경북"
+          },
+          {
+            "state": "off",
+            "name": "울산"
+          },
+          {
+            "state": "off",
+            "name": "충남"
+          },
+          {
+            "state": "off",
+            "name": "대전"
+          },
+          {
+            "state": "off",
+            "name": "세종"
+          },
+          {
+            "state": "off",
+            "name": "충북"
+          },
+          {
+            "state": "off",
+            "name": "대구"
+          },
+          {
+            "state": "last",
+            "name": "부산"
+          },
+          {
+            "state": "off",
+            "name": "전북"
+          },
+          {
+            "state": "off",
+            "name": "광주"
+          },
+          {
+            "state": "off",
+            "name": "전남"
+          },
+          {
+            "state": "off",
+            "name": "경남"
+          },
+          {
+            "state": "none"
+          },
+          {
+            "state": "on",
+            "name": "제주"
+          }
+        ]
+      }
+    }
+  ]
+}

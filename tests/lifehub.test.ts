@@ -69,7 +69,7 @@ describe('Life Hub connection', () => {
     assert.equal(url.searchParams.get('client_id'), CLIENT_ID);
     assert.equal(url.searchParams.get('redirect_uri'), APP_URL);
     assert.equal(url.searchParams.get('resource'), RESOURCE);
-    assert.equal(url.searchParams.get('scope'), 'kyeokyeoi:inbox');
+    assert.equal(url.searchParams.get('scope'), 'kyeokyeoi:inbox kyeokyeoi:board');
     const state = url.searchParams.get('state')!;
     await assert.rejects(completeConnect(`?code=x&state=${state}&iss=${encodeURIComponent('https://evil.example')}`, d), (e: LifeHubError) => e.kind === 'state');
     assert.equal(isConnected(d), false);

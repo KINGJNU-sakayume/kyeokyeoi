@@ -2,7 +2,7 @@
  * 켜켜이 ↔ Life Hub connection.
  *
  * - Connect: OAuth 2.1 authorization code + PKCE (S256). The owner signs in on Life Hub; 켜켜이 receives
- *   only a `kyeokyeoi:inbox` token for the `/kyeokyeoi` resource. No secret ships in this app: it is a
+ *   only `kyeokyeoi:inbox` and `kyeokyeoi:board` (the board tile list) permissions for the `/kyeokyeoi` resource. No secret ships in this app: it is a
  *   public client identified by public/lifehub-client.json.
  * - Proposals are fetched live and validated here again. Nothing is stored until the owner approves:
  *   a memory through the normal "새 추억" sheet, a visit after choosing the region.
@@ -19,7 +19,7 @@ export const LIFEHUB_ORIGIN = 'https://life-hub-api.213303.workers.dev';
 export const APP_URL = 'https://kingjnu-sakayume.github.io/kyeokyeoi/';
 export const CLIENT_ID = APP_URL + 'lifehub-client.json';
 export const RESOURCE = LIFEHUB_ORIGIN + '/kyeokyeoi';
-export const SCOPE = 'kyeokyeoi:inbox';
+export const SCOPE = 'kyeokyeoi:inbox kyeokyeoi:board';
 export const SOURCE_SERVICE = 'life-hub';
 const API = LIFEHUB_ORIGIN + '/kyeokyeoi/v1';
 
@@ -184,6 +184,8 @@ const PENDING_AUTH_KEY = 'kyeokyeoi.lifehub.pending-auth.v1';
 const OUTCOMES_KEY = 'kyeokyeoi.lifehub.outcomes.v1';
 const REJECTIONS_KEY = 'kyeokyeoi.lifehub.rejections.v1';
 const VISIT_RECEIPTS_KEY = 'kyeokyeoi.lifehub.visit-receipts.v1';
+/** Set when the board upload was refused with insufficient_scope: the connection predates `kyeokyeoi:board`. */
+export const BOARD_NEEDS_SCOPE_KEY = 'kyeokyeoi.lifehub.board-needs-scope.v1';
 const AUTO_APPLY_KEY = 'kyeokyeoi.lifehub.auto-apply.v1';
 const REGION_REFS_KEY = 'kyeokyeoi.lifehub.region-refs.v1';
 const AUTH_MAX_AGE_MS = 10 * 60 * 1000;
@@ -281,9 +283,11 @@ export async function completeConnect(search: string, deps: Deps): Promise<void>
   await tokenRequest(deps, {
     grant_type: 'authorization_code', code, redirect_uri: APP_URL, code_verifier: pending.verifier, resource: RESOURCE,
   });
+  // A fresh sign-in asks for the current scope, so an earlier insufficient_scope no longer applies.
+  deps.storage.removeItem(BOARD_NEEDS_SCOPE_KEY);
 }
 
-async function accessToken(deps: Deps, force = false): Promise<string> {
+export async function accessToken(deps: Deps, force = false): Promise<string> {
   const tokens = readJson<Tokens>(deps.storage, TOKENS_KEY);
   if (!tokens?.refresh_token) throw new LifeHubError('not_connected', 'Life Hub에 연결되어 있지 않아요.');
   if (!force && tokens.access_expires_at - 60_000 > deps.now()) return tokens.access_token;
@@ -311,9 +315,15 @@ async function api(deps: Deps, method: 'GET' | 'POST' | 'PUT', path: string, bod
   return response;
 }
 
+/** Drops the stored tokens: the connection is no longer valid. */
+export function clearTokens(deps: Pick<Deps, 'storage'>): void {
+  deps.storage.removeItem(TOKENS_KEY);
+}
+
 export function disconnect(deps: Deps): void {
   const tokens = readJson<Tokens>(deps.storage, TOKENS_KEY);
   deps.storage.removeItem(TOKENS_KEY);
+  deps.storage.removeItem(BOARD_NEEDS_SCOPE_KEY);
   if (tokens?.refresh_token)
     void deps
       .fetch(LIFEHUB_ORIGIN + '/oauth/token', {

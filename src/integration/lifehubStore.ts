@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { LifeHubErrorKind, Proposal } from './lifehub';
 import { browserDeps, isConnected } from './lifehub';
+import { boardNeedsScope } from './boardUpload';
 
 /** Shared Life Hub state for the agent, the Settings section and the proposals sheet. */
 export interface LifeHubState {
@@ -14,6 +15,8 @@ export interface LifeHubState {
   /** The connection was lost (token missing or refused) while this page was open: 「확인 필요」. */
   reauth: boolean;
   lastSyncedAt: number | null;
+  /** The board upload was refused for a missing scope: a reconnect is needed (tokens are kept). */
+  boardNeedsScope: boolean;
 }
 
 let state: LifeHubState = {
@@ -25,6 +28,7 @@ let state: LifeHubState = {
   errorKind: '',
   reauth: false,
   lastSyncedAt: null,
+  boardNeedsScope: typeof localStorage !== 'undefined' && boardNeedsScope(browserDeps()),
 };
 const listeners = new Set<() => void>();
 
