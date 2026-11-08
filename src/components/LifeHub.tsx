@@ -7,6 +7,7 @@ import {
   uploadRegionRefs, validDate,
 } from '../integration/lifehub';
 import type { Proposal } from '../integration/lifehub';
+import { boardEnabled, setBoardEnabled, uploadBoard } from '../integration/boardUpload';
 import { planAutoApply, regionRefs, type RegionEntry } from '../integration/lifehubApply';
 import {
   getLifeHubState, hubPhase, requestLifeHubSync, setLifeHubState, statusLine, SYNC_EVENT, useLifeHub,
@@ -60,12 +61,45 @@ async function applyApproved(proposals: Proposal[], regions: RegionEntry[]): Pro
   return saved;
 }
 
+let boardTimer: ReturnType<typeof setTimeout> | undefined;
+let boardBusy = false;
+let boardAgain = false;
+/**
+ * Sends the board tile list when the rules allow (see boardUpload.ts). A failure here never touches the
+ * rest of the Life Hub connection: it is logged and the next change, open or timer tries again.
+ */
+async function pushBoard(): Promise<void> {
+  if (boardBusy) {
+    boardAgain = true;
+    return;
+  }
+  boardBusy = true;
+  try {
+    const deps = browserDeps();
+    if (!isConnected(deps) || !boardEnabled(deps)) return;
+    const [memories, visits] = await Promise.all([getMemories(), getRegionVisits()]);
+    const result = await uploadBoard({ visits, memories }, deps);
+    clearTimeout(boardTimer);
+    if (result.status === 'wait') boardTimer = setTimeout(() => void pushBoard(), result.waitMs + 1000);
+    if (result.status === 'needs_scope') setLifeHubState({ boardNeedsScope: true });
+  } catch (e) {
+    if (e instanceof LifeHubError && e.kind === 'not_connected') setLifeHubState({ connected: false, reauth: true, proposals: [] });
+    else console.error('[보드] 목록을 올리지 못했어요', e);
+  } finally {
+    boardBusy = false;
+    if (boardAgain) {
+      boardAgain = false;
+      void pushBoard();
+    }
+  }
+}
+
 /**
  * Runs in the background while the app is open: finishes a Life Hub sign-in that just returned,
  * then sends pending receipts/rejections and refreshes proposals on start and on request.
  */
 export function LifeHubAgent() {
-  const { showToast, refreshArchive } = useApp();
+  const { showToast, refreshArchive, memories, visits } = useApp();
   const run = useCallback(
     async (quiet: boolean) => {
       if (!isConnected(browserDeps()) || getLifeHubState().syncing) return;
@@ -97,10 +131,17 @@ export function LifeHubAgent() {
         setLifeHubState({ error: e instanceof Error ? e.message : String(e), errorKind: e instanceof LifeHubError ? e.kind : 'server' });
       } finally {
         setLifeHubState({ syncing: false });
+        void pushBoard();
       }
     },
     [showToast, refreshArchive],
   );
+
+  // Opening the app and any change to the records: send the board list if it changed.
+  useEffect(() => {
+    void pushBoard();
+  }, [memories, visits]);
+  useEffect(() => () => clearTimeout(boardTimer), []);
 
   useEffect(() => {
     const onRequest = (e: Event) => void run((e as CustomEvent<{ quiet?: boolean }>).detail?.quiet ?? true);
@@ -110,7 +151,7 @@ export function LifeHubAgent() {
         callbackOnce ??= completeConnect(location.search, browserDeps());
         try {
           await callbackOnce;
-          setLifeHubState({ connected: true, error: '', errorKind: '', reauth: false });
+          setLifeHubState({ connected: true, error: '', errorKind: '', reauth: false, boardNeedsScope: false });
           showToast('Life Hub에 연결했어요.');
         } catch (e) {
           setLifeHubState({ error: e instanceof Error ? e.message : String(e), errorKind: e instanceof LifeHubError ? e.kind : 'server' });
@@ -132,6 +173,7 @@ export function LifeHubSection() {
   const [open, setOpen] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
   const [autoApply, setAutoApplyState] = useState(() => autoApplyEnabled(browserDeps()));
+  const [board, setBoard] = useState(() => boardEnabled(browserDeps()));
   const canConnect = connectAvailable(location);
   const phase = hubPhase(hub);
 
@@ -201,6 +243,29 @@ export function LifeHubSection() {
               <small>Claude 대화 카드에서 승인한 추억·방문을 앱을 열 때 저장해요. 시군구가 정해지지 않은 건 여기서 확인해요.</small>
             </span>
           </label>
+          <label className="lifehub__check">
+            <input
+              type="checkbox"
+              checked={board}
+              onChange={(e) => {
+                setBoardEnabled(browserDeps(), e.target.checked);
+                setBoard(e.target.checked);
+                if (e.target.checked) void pushBoard();
+              }}
+            />
+            <span>
+              이 기기에서 보드에 올리기
+              <small>방문한 시도 격자만 올려요. 추억 제목·장소·사진은 올리지 않아요. 기기마다 기록이 달라 여러 기기에서 켜면 서로 덮어써요.</small>
+            </span>
+          </label>
+          {board && hub.boardNeedsScope && (
+            <div className="lifehub__warn">
+              <p>보드에 올리려면 Life Hub에 다시 연결해 주세요. 지금 연결은 그대로 쓸 수 있어요.</p>
+              <button type="button" className="btn" disabled={!canConnect} onClick={() => void connect()}>
+                다시 연결
+              </button>
+            </div>
+          )}
         </div>
       )}
       {phase === 'C' && (
@@ -232,7 +297,7 @@ export function LifeHubSection() {
           onCancel={() => setConfirmOff(false)}
           onConfirm={() => {
             disconnect(browserDeps());
-            setLifeHubState({ connected: false, reauth: false, proposals: [], error: '', errorKind: '' });
+            setLifeHubState({ connected: false, reauth: false, proposals: [], error: '', errorKind: '', boardNeedsScope: false });
             setConfirmOff(false);
             showToast('Life Hub 연결을 해제했어요.');
           }}
