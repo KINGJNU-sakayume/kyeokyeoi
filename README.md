@@ -22,6 +22,8 @@ npm run dev
 npm test
 npm run lint
 npm run build
+npm run preview        # 빌드 결과(dist/)를 로컬에서 확인
+npm run generate-icons # PWA 아이콘 다시 만들기 (scripts/generate-icons.mjs)
 npx playwright install chromium
 npm run test:e2e
 ```
